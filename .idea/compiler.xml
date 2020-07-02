@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel target="1.8">
+      <module name="telekram.api.jvmMain" target="1.6" />
+      <module name="telekram.api.jvmTest" target="1.6" />
+      <module name="telekram.core.jvmMain" target="1.6" />
+      <module name="telekram.core.jvmTest" target="1.6" />
+    </bytecodeTargetLevel>
+  </component>
+</project>
