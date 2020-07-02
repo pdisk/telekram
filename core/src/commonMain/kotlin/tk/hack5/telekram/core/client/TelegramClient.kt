@@ -143,7 +143,7 @@ open class TelegramClientCoreImpl(
             Napier.d(this(Help_GetNearestDcRequest()).toString()) // First request has to be an unchanged request from the first layer
             serverConfig = this(
                 InvokeWithLayerRequest(
-                    105,
+                    113,
                     InitConnectionRequest(
                         apiId.toInt(),
                         deviceModel,
@@ -152,6 +152,7 @@ open class TelegramClientCoreImpl(
                         systemLangCode,
                         langPack,
                         langCode,
+                        null,
                         null,
                         Help_GetConfigRequest()
                     )
