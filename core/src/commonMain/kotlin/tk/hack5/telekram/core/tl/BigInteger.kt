@@ -18,12 +18,8 @@
 
 package tk.hack5.telekram.core.tl
 
-import kotlinx.serialization.Decoder
-import kotlinx.serialization.Encoder
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.Serializer
-import kotlinx.serialization.internal.StringDescriptor
-import kotlinx.serialization.internal.StringSerializer
+import kotlinx.serialization.*
+import kotlinx.serialization.builtins.serializer
 import org.gciatto.kt.math.BigInteger
 
 fun BigInteger.asTlObject128(): Int128Object =
@@ -125,12 +121,12 @@ fun BigInteger.toByteArray(size: Int): ByteArray {
 
 @Serializer(forClass = BigInteger::class)
 object BigIntegerSerializer : KSerializer<BigInteger> {
-    override val descriptor = StringDescriptor
+    override val descriptor = PrimitiveDescriptor("rawBytes", PrimitiveKind.STRING)
     override fun deserialize(decoder: Decoder): BigInteger {
-        return BigInteger(StringSerializer.deserialize(decoder), 16)
+        return BigInteger(String.serializer().deserialize(decoder), 16)
     }
 
-    override fun serialize(encoder: Encoder, obj: BigInteger) {
-        StringSerializer.serialize(encoder, obj.toString(16))
+    override fun serialize(encoder: Encoder, value: BigInteger) {
+        String.serializer().serialize(encoder, value.toString(16))
     }
 }

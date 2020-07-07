@@ -41,6 +41,7 @@ fun MessageMediaType.toInputMedia(): InputMediaType {
         is MessageMediaInvoiceObject -> TODO()
         is MessageMediaGeoLiveObject -> InputMediaEmptyObject()
         is MessageMediaPollObject -> InputMediaPollObject(poll)
+        is MessageMediaDiceObject -> InputMediaDiceObject(emoticon)
     }
 }
 

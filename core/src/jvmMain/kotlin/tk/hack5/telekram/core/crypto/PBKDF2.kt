@@ -18,11 +18,27 @@
 
 package tk.hack5.telekram.core.crypto
 
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.digests.SHA512Digest
+import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator
+import org.bouncycastle.crypto.params.KeyParameter
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
-actual internal fun doPBKDF2SHA512Iter100000(password: CharArray, salt: ByteArray): ByteArray {
-    val pbe = PBEKeySpec(password, salt, 100000, 512)
+
+internal actual fun doPBKDF2SHA512Iter100000(password: ByteArray, salt: ByteArray): ByteArray {
+    val gen = PKCS5S2ParametersGenerator(SHA512Digest())
+    gen.init(password, salt, 100000)
+    val dk = (gen.generateDerivedParameters(512) as KeyParameter).key
+    gen.password.let {
+        it.indices.forEach { i ->
+            it[i] = 0
+        }
+    }
+    return dk
+    /*val pbe = PBEKeySpec(password.map { it.toUByte().toInt().toChar() }.toCharArray(), salt, 100000, 512)
     val skf = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA512")
-    return skf.generateSecret(pbe).encoded
+    val ret = skf.generateSecret(pbe).encoded
+    pbe.clearPassword()
+    return ret*/
 }

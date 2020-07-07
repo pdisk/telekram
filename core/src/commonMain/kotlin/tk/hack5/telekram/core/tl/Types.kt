@@ -37,7 +37,7 @@ internal fun ByteArray.toInt(): Int {
     return ret
 }
 
-internal fun Int.toByteArray(size: Int = Int.SIZE_BYTES): ByteArray {
-    return (0 until size).map { ushr((it) * Byte.SIZE_BITS)
+internal fun Int.toByteArray(maxSizeBytes: Int = Int.SIZE_BYTES): ByteArray {
+    return (0 until maxSizeBytes).map { ushr((it) * Byte.SIZE_BITS)
         .and(0xFF).toByte() }.toByteArray()
 }

@@ -18,4 +18,4 @@
 
 package tk.hack5.telekram.core.crypto
 
-expect internal fun doPBKDF2SHA512Iter100000(password: CharArray, salt: ByteArray): ByteArray
+internal expect fun doPBKDF2SHA512Iter100000(password: ByteArray, salt: ByteArray): ByteArray

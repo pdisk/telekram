@@ -16,11 +16,11 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-val serializationVersion = "0.14.0"
+val serializationVersion = "0.20.0"
 
 plugins {
     kotlin("multiplatform")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.3.60"
+    kotlin("plugin.serialization") version "1.3.72"
     application
 }
 

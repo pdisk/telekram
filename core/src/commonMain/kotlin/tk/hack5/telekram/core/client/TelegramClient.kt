@@ -192,7 +192,6 @@ open class TelegramClientCoreImpl(
                     this@TelegramClientCoreImpl.updateCallbacks.forEach {
                         launch { it(update) }
                     }
-                    println("dispatched update.")
                 }
             }
         }
@@ -246,14 +245,17 @@ open class TelegramClientCoreImpl(
             val auth = PasswordAuthenticator(::doPBKDF2SHA512Iter100000)
             val srp = when (pwd.currentAlgo) {
                 is PasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPowObject -> {
-                    auth.hashPasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow(sessionPassword, pwd, pwd.currentAlgo, secureRandom)
+                    auth.hashPasswordKdfAlgoSHA256SHA256PBKDF2HMACSHA512iter100000SHA256ModPow(
+                        sessionPassword,
+                        pwd,
+                        pwd.currentAlgo,
+                        secureRandom
+                    )
                 }
                 is PasswordKdfAlgoUnknownObject -> TODO()
                 null -> TODO()
             }
-            Napier.d(this(Auth_CheckPasswordRequest(srp)).toString(), tag = tag)
-            // TODO 2fa
-            throw e
+            this(Auth_CheckPasswordRequest(srp))
         }
         when (auth) {
             is Auth_AuthorizationSignUpRequiredObject -> {

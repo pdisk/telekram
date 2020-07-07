@@ -23,7 +23,7 @@ buildscript {
 }
 
 plugins {
-    kotlin("multiplatform") version "1.3.61"
+    kotlin("multiplatform") version "1.3.72"
 }
 
 group = "tk.hack5.telekram"

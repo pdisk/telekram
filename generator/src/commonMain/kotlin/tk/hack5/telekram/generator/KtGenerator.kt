@@ -343,7 +343,7 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
             val nullability = if (nullable) "?" else ""
             val nullabilityBool = if (nullable && it.type.substringAfter("?") != "true") "?" else ""
             "${it.name}_param$nullability.second$nullabilityBool.native" +
-                    if (it.type.contains("Vector<")) "?.map { it.native }" else ""
+                    if (it.type.contains("Vector<")) "$nullability.map { it.native }" else ""
         } + "))")
     }
 }
