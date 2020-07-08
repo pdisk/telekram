@@ -47,7 +47,8 @@ open class PasswordAuthenticator(protected val pbkdf2sha512: (ByteArray, ByteArr
         val g = algo.g
         val gBigInt = BigInteger.of(g)
         val gByteArray = gBigInt.toByteArray().pad(256)
-        val p = algo.p.pad(256)
+        val p =
+            algo.p.pad(256) // TODO verify this is a safe 2048 bit prime and g generates a cyclic subgroup of prime order (p-1)/2
         val pBigInt = BigInteger(byteArrayOf(0) + p)
 
         val salt1 = algo.salt1

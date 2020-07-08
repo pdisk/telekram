@@ -33,6 +33,8 @@ import tk.hack5.telekram.core.utils.TLWalker
 enum class ObjectType {
     USER,
     CHANNEL,
+    MIN_USER,
+    MIN_CHANNEL,
     PHOTO,
     ENCRYPTED_FILE_LOCATION,
     DOCUMENT_FILE_LOCATION,
@@ -103,11 +105,13 @@ class AccessHashGetter : TLWalker<MutableMap<String, MutableMap<Long, Long>>>() 
                 accessHash = value.accessHash
             }
             is UserObject -> {
+                if (!value.min) return true // TODO https://core.telegram.org/api/min
                 objectType = ObjectType.USER
                 id = value.id.toLong()
                 accessHash = value.accessHash ?: return true
             }
             is ChannelObject -> {
+                if (value.min) return true // TODO https://core.telegram.org/api/min
                 objectType = ObjectType.CHANNEL
                 id = value.id.toLong()
                 accessHash = value.accessHash ?: return true

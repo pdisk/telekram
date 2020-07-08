@@ -27,12 +27,14 @@ import kotlinx.coroutines.runBlocking
 import tk.hack5.telekram.core.state.JsonSession
 import tk.hack5.telekram.core.state.invoke
 import tk.hack5.telekram.core.tl.Messages_EditMessageRequest
+import tk.hack5.telekram.core.tl.UpdatesType
 import java.io.File
+import kotlin.system.measureTimeMillis
 
 @ExperimentalCoroutinesApi
 fun main(): Unit = runBlocking {
     DebugProbes.install()
-    System.setProperty("java.util.logging.SimpleFormatter.format", "[%1\$tT.%1\$tL] [%4$-7s] %5\$s %n")
+    //System.setProperty("java.util.logging.SimpleFormatter.format", "[%1\$tT.%1\$tL] [%4$-7s] %5\$s %n")
     Napier.base(DebugAntilog())
     val (apiId, apiHash) = File("apiToken").readLines()
     val client =
@@ -66,8 +68,14 @@ fun main(): Unit = runBlocking {
             is NewMessage.NewMessageEvent -> {
                 if (it.out) {
                     if (it.message == ".ping") {
-                        val update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
-                        client.sendUpdate(update)
+                        var update: UpdatesType? = null
+                        val time = measureTimeMillis {
+                            update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+                        }
+                        client.sendUpdate(update!!)
+                        update =
+                            client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong\nRTT=${time}ms"))
+                        client.sendUpdate(update!!)
                     }
                 }
             }

@@ -104,15 +104,13 @@ open class TelegramClientCoreImpl(
     protected val updatesChannel = Channel<UpdatesType>(Channel.UNLIMITED)
     protected lateinit var inputUserSelf: InputPeerUserObject
     protected var updatesHandler: UpdateHandler? = null
-    var scope = parentScope + SupervisorJob(parentScope.coroutineContext[Job])
+    lateinit var scope: CoroutineScope
 
     override var updateCallbacks = listOf<suspend (UpdateOrSkipped) -> Unit>()
 
-    init {
-        session.state?.scope = scope
-    }
-
     override suspend fun connect() {
+        scope = parentScope + SupervisorJob(parentScope.coroutineContext[Job])
+        session.state?.scope = scope
         session.updates?.let {
             updatesHandler = UpdateHandlerImpl(scope, it, this)
         }
@@ -168,7 +166,6 @@ open class TelegramClientCoreImpl(
         connection = null
         scope.coroutineContext[Job]!!.cancelAndJoin()
         updatesHandler?.updates?.close()
-        scope = parentScope + SupervisorJob(parentScope.coroutineContext[Job])
     }
 
     override suspend fun start(

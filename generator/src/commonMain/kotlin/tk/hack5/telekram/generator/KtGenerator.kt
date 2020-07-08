@@ -248,10 +248,12 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
     }
     private fun writeClassDef() {
         var generic = ""
+        var genericStarred = ""
         val params = (entry.params.mapNotNull {
             if (it.type.first() == '!') {
                 genericType = it.type.substring(1)
                 generic = "<R: TLObject<*>, $genericType : TLMethod<R>>"
+                genericStarred = "<*, *>"
                 return@mapNotNull "val ${it.name}: $genericType"
             }
             fixType(it.type)?.let { type ->
@@ -271,6 +273,33 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
             }
         }
         write("data class $tlName$requestExtension$generic($params) : $extends {", 1)
+
+        write("override fun equals(other: Any?): Boolean {", 1)
+        write("if (this === other) return true")
+        write("if (other == null || this::class != other::class) return false")
+        write("other as $tlName$requestExtension$genericStarred")
+        entry.params.filter { it.type != "#" }.forEach {
+            if (it.type == "bytes")
+                write("if (!${it.name}.contentEquals(${it.name})) return false")
+            else
+                write("if (${it.name} != other.${it.name}) return false")
+        }
+        write("return true")
+        writeDeclEnd()
+        write("override fun hashCode(): Int {", 1)
+        if (entry.params.any { it.type != "#" }) {
+            write("var result = _id.hashCode()")
+            entry.params.filter { it.type != "#" }.forEach {
+                if (it.type == "bytes")
+                    write("result = 31 * result + ${it.name}.contentHashCode()")
+                else
+                    write("result = 31 * result + ${it.name}.hashCode()")
+            }
+            write("return result")
+        } else {
+            write("return _id")
+        }
+        writeDeclEnd()
     }
     private fun writeToTlReprDef() {
         write("@ExperimentalUnsignedTypes")
