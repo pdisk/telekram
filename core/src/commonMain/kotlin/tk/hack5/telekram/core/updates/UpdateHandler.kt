@@ -33,8 +33,12 @@ import tk.hack5.telekram.core.utils.TLWalker
 enum class ObjectType {
     USER,
     CHANNEL,
-    MIN_USER,
-    MIN_CHANNEL,
+    MIN_USER_IN_USER,
+    MIN_USER_IN_CHAT,
+    MIN_USER_IN_CHANNEL,
+    MIN_CHANNEL_IN_USER,
+    MIN_CHANNEL_IN_CHAT,
+    MIN_CHANNEL_IN_CHANNEL,
     PHOTO,
     ENCRYPTED_FILE_LOCATION,
     DOCUMENT_FILE_LOCATION,
@@ -51,8 +55,12 @@ enum class ObjectType {
 
 }
 
-class AccessHashGetter : TLWalker<MutableMap<String, MutableMap<Long, Long>>>() {
-    override val result = mutableMapOf<String, MutableMap<Long, Long>>()
+class AccessHashGetter :
+    TLWalker<Triple<MutableMap<String, MutableMap<Long, Long>>, MutableMap<Int, Pair<PeerType, Int>?>, MutableMap<Int, Pair<PeerType, Int>?>>>() {
+    override val result get() = Triple(map, minUsers, minChannels)
+    val map = mutableMapOf<String, MutableMap<Long, Long>>()
+    val minUsers = mutableMapOf<Int, Pair<PeerType, Int>?>()
+    val minChannels = mutableMapOf<Int, Pair<PeerType, Int>?>()
 
     override fun handle(key: String, value: TLObject<*>?): Boolean {
         val objectType: ObjectType
@@ -105,16 +113,24 @@ class AccessHashGetter : TLWalker<MutableMap<String, MutableMap<Long, Long>>>() 
                 accessHash = value.accessHash
             }
             is UserObject -> {
-                if (!value.min) return true // TODO https://core.telegram.org/api/min
-                objectType = ObjectType.USER
-                id = value.id.toLong()
-                accessHash = value.accessHash ?: return true
+                if (!value.min) {
+                    minUsers[value.id] = null
+                    return true
+                } else {
+                    objectType = ObjectType.USER
+                    id = value.id.toLong()
+                    accessHash = value.accessHash ?: return true
+                }
             }
             is ChannelObject -> {
-                if (value.min) return true // TODO https://core.telegram.org/api/min
-                objectType = ObjectType.CHANNEL
-                id = value.id.toLong()
-                accessHash = value.accessHash ?: return true
+                if (value.min) {
+                    minChannels[value.id] = null
+                    return true
+                } else {
+                    objectType = ObjectType.CHANNEL
+                    id = value.id.toLong()
+                    accessHash = value.accessHash ?: return true
+                }
             }
             is ChannelForbiddenObject -> {
                 objectType = ObjectType.CHANNEL
@@ -204,13 +220,156 @@ class AccessHashGetter : TLWalker<MutableMap<String, MutableMap<Long, Long>>>() 
 
             else -> return true
         }
-        result.getOrPut(objectType.toString(), { mutableMapOf() })[id] = accessHash
+        map.getOrPut(objectType.toString()) { mutableMapOf() }[id] = accessHash
         return true
     }
 }
 
+class MinGetter(
+    val minUsers: MutableMap<Int, Pair<PeerType, Int>?>,
+    val minChannels: MutableMap<Int, Pair<PeerType, Int>?>
+) : TLWalker<Nothing>() {
+    // TODO: reduce code duplication
+    override fun handle(key: String, value: TLObject<*>?): Boolean {
+        when (value) {
+            /* there are some things that don't make sense to handle:
+               - if a user was seen in a private chat, constructing an InputPeerUserFromMessage
+                 would require us to already have their InputPeer
+
+             */
+            is MessageObject -> {
+                value.fromId?.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                }
+                (value.fwdFrom as? MessageFwdHeaderObject?)?.run {
+                    fromId?.let {
+                        if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                    }
+                    channelId?.let {
+                        if (minChannels.containsKey(it)) minChannels[it] = value.toId to value.id
+                    }
+                    when (savedFromPeer) {
+                        is PeerUserObject -> {
+                            savedFromPeer.userId.let {
+                                if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                            }
+                        }
+                        is PeerChannelObject -> {
+                            savedFromPeer.channelId.let {
+                                if (minChannels.containsKey(it)) minChannels[it] = value.toId to value.id
+                            }
+                        }
+                        else -> {
+                        }
+                    }
+                }
+                value.viaBotId?.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                }
+            }
+            is MessageServiceObject -> {
+                value.fromId?.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                }
+                when (value.toId) {
+                    is PeerUserObject -> {
+                        value.toId.userId.let {
+                            if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                        }
+                    }
+                    is PeerChannelObject -> {
+                        value.toId.channelId.let {
+                            if (minChannels.containsKey(it)) minChannels[it] = value.toId to value.id
+                        }
+                    }
+                    else -> {
+                    }
+                }
+                when (value.action) {
+                    is MessageActionChatCreateObject -> value.action.users.forEach {
+                        if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                    }
+                    is MessageActionChatAddUserObject -> value.action.users.forEach {
+                        if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                    }
+                    is MessageActionChatDeleteUserObject -> value.action.userId.let {
+                        if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                    }
+                    is MessageActionChatJoinedByLinkObject -> value.action.inviterId.let {
+                        if (minUsers.containsKey(it)) minUsers[it] = value.toId to value.id
+                    }
+                    is MessageActionChatMigrateToObject -> value.action.channelId.let {
+                        if (minChannels.containsKey(it)) minChannels[it] = value.toId to value.id
+                    }
+                }
+            }
+            is UpdateShortMessageObject -> {
+                val toId = PeerUserObject(value.userId)
+                (value.fwdFrom as? MessageFwdHeaderObject?)?.run {
+                    fromId?.let {
+                        if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                    }
+                    channelId?.let {
+                        if (minChannels.containsKey(it)) minChannels[it] = toId to value.id
+                    }
+                    when (savedFromPeer) {
+                        is PeerUserObject -> {
+                            savedFromPeer.userId.let {
+                                if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                            }
+                        }
+                        is PeerChannelObject -> {
+                            savedFromPeer.channelId.let {
+                                if (minChannels.containsKey(it)) minChannels[it] = toId to value.id
+                            }
+                        }
+                        else -> {
+                        }
+                    }
+                }
+                value.viaBotId?.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                }
+            }
+            is UpdateShortChatMessageObject -> {
+                val toId = PeerChatObject(value.chatId)
+                value.fromId.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                }
+                (value.fwdFrom as? MessageFwdHeaderObject?)?.run {
+                    fromId?.let {
+                        if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                    }
+                    channelId?.let {
+                        if (minChannels.containsKey(it)) minChannels[it] = toId to value.id
+                    }
+                    when (savedFromPeer) {
+                        is PeerUserObject -> {
+                            savedFromPeer.userId.let {
+                                if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                            }
+                        }
+                        is PeerChannelObject -> {
+                            savedFromPeer.channelId.let {
+                                if (minChannels.containsKey(it)) minChannels[it] = toId to value.id
+                            }
+                        }
+                        else -> {
+                        }
+                    }
+                }
+                value.viaBotId?.let {
+                    if (minUsers.containsKey(it)) minUsers[it] = toId to value.id
+                }
+            }
+            else -> return true
+        }
+        return false // if we actually found a message, there can't be a nested message, so save time by not iterating
+    }
+}
+
 interface UpdateHandler {
-    suspend fun getEntities(update: TLObject<*>): MutableMap<String, MutableMap<Long, Long>>
+    suspend fun getEntities(update: TLObject<*>): Map<String, MutableMap<Long, Long>>
     suspend fun handleUpdates(update: TLObject<*>)
     val updates: Channel<UpdateOrSkipped>
     suspend fun catchUp()
@@ -232,7 +391,33 @@ open class UpdateHandlerImpl(
         if (update is UpdatesType) handleUpdates(update)
     }
 
-    override suspend fun getEntities(update: TLObject<*>) = AccessHashGetter().walk(update)!!
+    override suspend fun getEntities(update: TLObject<*>): Map<String, MutableMap<Long, Long>> {
+        val (ret, minUsers, minChannels) = AccessHashGetter().walk(update)!!
+        MinGetter(minUsers, minChannels).walk(update)
+        minUsers.forEach {
+            it.value ?: return@forEach
+            val (type, peerId) = when (val peer = it.value!!.first) {
+                is PeerUserObject -> ObjectType.MIN_USER_IN_USER to peer.userId
+                is PeerChatObject -> ObjectType.MIN_USER_IN_CHAT to peer.chatId
+                is PeerChannelObject -> ObjectType.MIN_USER_IN_CHANNEL to peer.channelId
+            }
+            // pack peerId and msgId into a single Long (msgId is in lower-order bits)
+            ret.getOrPut(type.toString()) { mutableMapOf() }[it.key.toLong()] =
+                peerId.toLong().shl(32).or(it.value!!.second.toLong().and(0xffffffffL))
+        }
+        minChannels.forEach {
+            it.value ?: return@forEach
+            val (type, peerId) = when (val peer = it.value!!.first) {
+                is PeerUserObject -> ObjectType.MIN_CHANNEL_IN_USER to peer.userId
+                is PeerChatObject -> ObjectType.MIN_CHANNEL_IN_CHAT to peer.chatId
+                is PeerChannelObject -> ObjectType.MIN_CHANNEL_IN_CHANNEL to peer.channelId
+            }
+            // pack peerId and msgId into a single Long (msgId is in lower-order bits)
+            ret.getOrPut(type.toString()) { mutableMapOf() }[it.key.toLong()] =
+                peerId.toLong().shl(32).or(it.value!!.second.toLong().and(0xffffffffL))
+        }
+        return ret
+    }
 
     protected suspend fun handleUpdates(
         updates: UpdatesType,
