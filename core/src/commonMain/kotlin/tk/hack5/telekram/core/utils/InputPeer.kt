@@ -38,11 +38,15 @@ suspend fun UserObject.toInputUser(client: TelegramClient, allowMin: Boolean = t
 suspend fun PeerUserObject.toInputUser(client: TelegramClient, allowMin: Boolean = true): InputUserType {
     val accessHash = client.getAccessHash(PeerType.USER, userId)
     if (accessHash == null) {
-        if (!allowMin) throw EntityNotFoundException(PeerType.USER, userId)
-        val packedData = client.getAccessHash(PeerType.MIN_USER, userId) ?: throw EntityNotFoundException(
+        if (!allowMin) return getInputUser(client) ?: throw EntityNotFoundException(
             PeerType.USER,
             userId
         )
+        val packedData = client.getAccessHash(PeerType.MIN_USER, userId)
+            ?: return getInputUser(client) ?: throw EntityNotFoundException(
+                PeerType.USER,
+                userId
+            )
         val msgId = packedData.and(0x7fffffff).toInt()
         val peerId = packedData.ushr(31).and(0x7fffffff).toInt()
         val peer = try {
@@ -91,14 +95,15 @@ suspend fun ChannelObject.toInputChannel(client: TelegramClient, allowMin: Boole
 suspend fun PeerChannelObject.toInputChannel(client: TelegramClient, allowMin: Boolean = true): InputChannelType {
     val accessHash = client.getAccessHash(PeerType.CHANNEL, channelId)
     if (accessHash == null) {
-        if (!allowMin) throw EntityNotFoundException(
+        if (!allowMin) return getInputChannel(client) ?: throw EntityNotFoundException(
             PeerType.CHANNEL,
             channelId
         )
-        val packedData = client.getAccessHash(PeerType.MIN_CHANNEL, channelId) ?: throw EntityNotFoundException(
-            PeerType.CHANNEL,
-            channelId
-        )
+        val packedData = client.getAccessHash(PeerType.MIN_CHANNEL, channelId)
+            ?: return getInputChannel(client) ?: throw EntityNotFoundException(
+                PeerType.CHANNEL,
+                channelId
+            )
         val msgId = packedData.and(0x7fffffff).toInt()
         val peerId = packedData.ushr(31).and(0x7fffffff).toInt()
         val peer = try {
@@ -157,7 +162,7 @@ fun InputChannelType.toInputPeer() = when (this) {
 
 @Suppress("EXPERIMENTAL_API_USAGE")
 class EntityNotFoundException(val peerType: PeerType, val peerId: Int) : CopyableThrowable<EntityNotFoundException>,
-    NoSuchElementException("") {
+    NoSuchElementException("Failed to find $peerType with ID $peerId") {
     @ExperimentalCoroutinesApi
     override fun createCopy(): EntityNotFoundException =
         EntityNotFoundException(peerType, peerId)

@@ -103,6 +103,7 @@ fun main(): Unit = runBlocking {
             System.console()?.readPassword() ?: readLine()!!.toCharArray()
         }
     ))
+    println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(1327313835, 0)))))
     client.catchUp()
     withContext(Dispatchers.IO) {
         readLine()
