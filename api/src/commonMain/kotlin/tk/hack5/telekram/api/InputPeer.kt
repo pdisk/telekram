@@ -20,41 +20,30 @@ package tk.hack5.telekram.api
 
 import tk.hack5.telekram.core.client.TelegramClient
 import tk.hack5.telekram.core.tl.*
-import tk.hack5.telekram.core.updates.ObjectType
+import tk.hack5.telekram.core.utils.toInputChannel
+import tk.hack5.telekram.core.utils.toInputPeer
+import tk.hack5.telekram.core.utils.toInputUser
 
-fun ChannelObject.toInputPeer(): InputPeerChannelObject = InputPeerChannelObject(id, accessHash!!)
-suspend fun PeerChannelObject.toInputPeer(client: TelegramClient): InputPeerChannelObject? {
-    return InputPeerChannelObject(id, client.getAccessHash(ObjectType.CHANNEL, id) ?: return null)
-}
-
-fun ChatObject.toInputPeer(): InputPeerChatObject = InputPeerChatObject(id)
-fun PeerChatObject.toInputPeer(): InputPeerChatObject = InputPeerChatObject(chatId)
-fun UserObject.toInputPeer(): InputPeerUserObject = InputPeerUserObject(id, accessHash!!)
-suspend fun PeerUserObject.toInputPeer(client: TelegramClient): InputPeerUserObject? {
-    return InputPeerUserObject(id, client.getAccessHash(ObjectType.USER, id) ?: return null)
-}
-
-suspend fun PeerType.toInputPeer(client: TelegramClient): InputPeerType? = when (this) {
-    is PeerUserObject -> toInputPeer(client)
-    is PeerChatObject -> toInputPeer()
-    is PeerChannelObject -> toInputPeer(client)
-}
-
-fun Messages_DialogsType.getInputPeer(dialog: DialogObject): InputPeerType {
+// TODO this feels stupid
+suspend fun Messages_DialogsType.getInputPeer(dialog: DialogObject, client: TelegramClient): InputPeerType {
     val id = dialog.peer.id
     return when (this) {
         is Messages_DialogsObject -> when (dialog.peer) {
-            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toInputPeer()
-            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toInputPeer()
+            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toInputUser(client)
+                .toInputPeer()
+            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toInputChannel(
+                client
+            ).toInputPeer()
             is PeerChatObject -> InputPeerChatObject(id)
         }
         is Messages_DialogsSliceObject -> when (dialog.peer) {
-            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toInputPeer()
-            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toInputPeer()
+            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toInputUser(client)
+                .toInputPeer()
+            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toInputChannel(
+                client
+            ).toInputPeer()
             is PeerChatObject -> InputPeerChatObject(id)
         }
         is Messages_DialogsNotModifiedObject -> TODO("dialogs caching")
     }
 }
-
-fun InputPeerUserObject.toInputUser() = InputUserObject(userId, accessHash)

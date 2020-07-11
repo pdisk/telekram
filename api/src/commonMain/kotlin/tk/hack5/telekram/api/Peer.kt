@@ -18,7 +18,12 @@
 
 package tk.hack5.telekram.api
 
+import tk.hack5.telekram.core.client.TelegramClient
 import tk.hack5.telekram.core.tl.*
+import tk.hack5.telekram.core.utils.toInputChannel
+import tk.hack5.telekram.core.utils.toInputChat
+import tk.hack5.telekram.core.utils.toInputPeer
+import tk.hack5.telekram.core.utils.toInputUser
 
 val PeerType.id
     get() = when (this) {
@@ -29,35 +34,36 @@ val PeerType.id
 
 sealed class Peer(val id: Int, val inputPeer: InputPeerType)
 
-data class PeerUser(val user: UserObject) :
-    Peer(user.id, user.toInputPeer())
+data class PeerUser(val user: UserObject, val inputUser: InputUserType) :
+    Peer(user.id, inputUser.toInputPeer())
 
-data class PeerChat(val chat: ChatObject) : Peer(chat.id, chat.toInputPeer())
-data class PeerChannel(val channel: ChannelObject) : Peer(channel.id, channel.toInputPeer())
+data class PeerChat(val chat: ChatObject) : Peer(chat.id, chat.toInputChat())
+data class PeerChannel(val channel: ChannelObject, val inputChannel: InputChannelType) :
+    Peer(channel.id, inputChannel.toInputPeer())
 
-fun UserObject.toPeer() = PeerUser(this)
+suspend fun UserObject.toPeer(client: TelegramClient) = PeerUser(this, toInputUser(client))
 fun ChatObject.toPeer() = PeerChat(this)
-fun ChannelObject.toPeer() = PeerChannel(this)
+suspend fun ChannelObject.toPeer(client: TelegramClient) = PeerChannel(this, toInputChannel(client))
 
-fun ChatType.toPeer() = when (this) {
+suspend fun ChatType.toPeer(client: TelegramClient) = when (this) {
     is ChatObject -> this.toPeer()
-    is ChannelObject -> this.toPeer()
+    is ChannelObject -> this.toPeer(client)
     is ChatEmptyObject -> null
     is ChatForbiddenObject -> null
     is ChannelForbiddenObject -> null
 }
 
-fun Messages_DialogsType.getPeer(dialog: DialogObject): Peer {
+suspend fun Messages_DialogsType.getPeer(dialog: DialogObject, client: TelegramClient): Peer {
     val id = dialog.peer.id
     return when (this) {
         is Messages_DialogsObject -> when (dialog.peer) {
-            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toPeer()
-            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toPeer()
+            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toPeer(client)
+            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toPeer(client)
             is PeerChatObject -> (chats.first { (it as? ChatObject)?.id == id } as ChatObject).toPeer()
         }
         is Messages_DialogsSliceObject -> when (dialog.peer) {
-            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toPeer()
-            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toPeer()
+            is PeerUserObject -> (users.first { (it as? UserObject)?.id == id } as UserObject).toPeer(client)
+            is PeerChannelObject -> (chats.first { (it as? ChannelObject)?.id == id } as ChannelObject).toPeer(client)
             is PeerChatObject -> (chats.first { (it as? ChatObject)?.id == id } as ChatObject).toPeer()
         }
         is Messages_DialogsNotModifiedObject -> TODO("dialogs caching")

@@ -20,14 +20,15 @@ package tk.hack5.telekram.api
 
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.debug.DebugProbes
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import tk.hack5.telekram.core.state.JsonSession
 import tk.hack5.telekram.core.state.invoke
-import tk.hack5.telekram.core.tl.Messages_EditMessageRequest
-import tk.hack5.telekram.core.tl.UpdatesType
+import tk.hack5.telekram.core.tl.*
+import tk.hack5.telekram.core.utils.toInputChannel
 import java.io.File
 import kotlin.system.measureTimeMillis
 
@@ -78,6 +79,11 @@ fun main(): Unit = runBlocking {
                         client.sendUpdate(update!!)
                     }
                 }
+                if (it.toId is PeerChannelObject) {
+                    client(Channels_ReadHistoryRequest((it.toId.toInputChannel(client)), it.id))
+                } else {
+                    client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                }
             }
             is EditMessage.EditMessageEvent -> println(it)
             is RawUpdate.RawUpdateEvent -> println(it)
@@ -98,7 +104,10 @@ fun main(): Unit = runBlocking {
         }
     ))
     client.catchUp()
-    delay(30000)
+    withContext(Dispatchers.IO) {
+        readLine()
+    }
+    //delay(30000)
     //DebugProbes.dumpCoroutines()
     //val dialogs = client.getDialogs()
     //println(dialogs.first())

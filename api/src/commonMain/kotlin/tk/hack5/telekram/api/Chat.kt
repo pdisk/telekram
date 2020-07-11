@@ -20,6 +20,9 @@ package tk.hack5.telekram.api
 
 import tk.hack5.telekram.core.client.TelegramClient
 import tk.hack5.telekram.core.tl.*
+import tk.hack5.telekram.core.utils.toInputChannel
+import tk.hack5.telekram.core.utils.toInputPeer
+import tk.hack5.telekram.core.utils.toInputUser
 
 interface ChatGetter {
     val chatPeer: PeerType
@@ -27,15 +30,21 @@ interface ChatGetter {
 
     suspend fun getChat(): Peer = chatPeer.let {
         when (it) {
-            is PeerUserObject -> PeerUser(client(Users_GetUsersRequest(
-                listOf(InputUserObject(it.userId, it.toInputPeer(client)!!.accessHash))
-            )).single() as UserObject)
-            is PeerChatObject -> PeerChat((client(Messages_GetChatsRequest(
-                listOf(it.chatId)
-            )) as Messages_ChatsObject).chats.single() as ChatObject)
-            is PeerChannelObject -> PeerChannel((client(Channels_GetChannelsRequest(
-                listOf(InputChannelObject(it.channelId, it.toInputPeer(client)!!.accessHash))
-            )) as Messages_ChatsObject).chats.single() as ChannelObject)
+            is PeerUserObject -> (client(
+                Users_GetUsersRequest(
+                    listOf(it.toInputUser(client))
+                )
+            ).single() as UserObject).toPeer(client)
+            is PeerChatObject -> ((client(
+                Messages_GetChatsRequest(
+                    listOf(it.chatId)
+                )
+            ) as Messages_ChatsObject).chats.single() as ChatObject).toPeer()
+            is PeerChannelObject -> ((client(
+                Channels_GetChannelsRequest(
+                    listOf(it.toInputChannel(client))
+                )
+            ) as Messages_ChatsObject).chats.single() as ChannelObject).toPeer(client)
         }
     }
     suspend fun getInputChat(): InputPeerType = chatPeer.toInputPeer(client)!!

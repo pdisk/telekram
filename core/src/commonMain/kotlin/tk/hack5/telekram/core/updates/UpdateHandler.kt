@@ -29,16 +29,13 @@ import tk.hack5.telekram.core.state.UpdateState
 import tk.hack5.telekram.core.tl.*
 import tk.hack5.telekram.core.utils.BaseActor
 import tk.hack5.telekram.core.utils.TLWalker
+import tk.hack5.telekram.core.utils.toInputChannel
 
-enum class ObjectType {
+enum class PeerType {
     USER,
     CHANNEL,
-    MIN_USER_IN_USER,
-    MIN_USER_IN_CHAT,
-    MIN_USER_IN_CHANNEL,
-    MIN_CHANNEL_IN_USER,
-    MIN_CHANNEL_IN_CHAT,
-    MIN_CHANNEL_IN_CHANNEL,
+    MIN_USER,
+    MIN_CHANNEL,
     PHOTO,
     ENCRYPTED_FILE_LOCATION,
     DOCUMENT_FILE_LOCATION,
@@ -56,59 +53,59 @@ enum class ObjectType {
 }
 
 class AccessHashGetter :
-    TLWalker<Triple<MutableMap<String, MutableMap<Long, Long>>, MutableMap<Int, Pair<PeerType, Int>?>, MutableMap<Int, Pair<PeerType, Int>?>>>() {
+    TLWalker<Triple<MutableMap<String, MutableMap<Long, Long>>, MutableMap<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>, MutableMap<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>>>() {
     override val result get() = Triple(map, minUsers, minChannels)
     val map = mutableMapOf<String, MutableMap<Long, Long>>()
-    val minUsers = mutableMapOf<Int, Pair<PeerType, Int>?>()
-    val minChannels = mutableMapOf<Int, Pair<PeerType, Int>?>()
+    val minUsers = mutableMapOf<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>()
+    val minChannels = mutableMapOf<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>()
 
     override fun handle(key: String, value: TLObject<*>?): Boolean {
-        val objectType: ObjectType
+        val peerType: PeerType
         val id: Long
         val accessHash: Long
         when (value) {
             is InputPeerUserObject -> {
-                objectType = ObjectType.USER
+                peerType = PeerType.USER
                 id = value.userId.toLong()
                 accessHash = value.accessHash
             }
             is InputPeerChannelObject -> {
-                objectType = ObjectType.CHANNEL
+                peerType = PeerType.CHANNEL
                 id = value.channelId.toLong()
                 accessHash = value.accessHash
             }
             is InputUserObject -> {
-                objectType = ObjectType.USER
+                peerType = PeerType.USER
                 id = value.userId.toLong()
                 accessHash = value.accessHash
             }
             is InputPhotoObject -> {
-                objectType = ObjectType.PHOTO
+                peerType = PeerType.PHOTO
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputEncryptedFileLocationObject -> {
-                objectType = ObjectType.ENCRYPTED_FILE_LOCATION
+                peerType = PeerType.ENCRYPTED_FILE_LOCATION
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputDocumentFileLocationObject -> {
-                objectType = ObjectType.DOCUMENT_FILE_LOCATION
+                peerType = PeerType.DOCUMENT_FILE_LOCATION
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputSecureFileLocationObject -> {
-                objectType = ObjectType.SECURE_FILE_LOCATION
+                peerType = PeerType.SECURE_FILE_LOCATION
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputPhotoFileLocationObject -> {
-                objectType = ObjectType.PHOTO_FILE_LOCATION
+                peerType = PeerType.PHOTO_FILE_LOCATION
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputPhotoLegacyFileLocationObject -> {
-                objectType = ObjectType.PHOTO_LEGACY_FILE_LOCATION
+                peerType = PeerType.PHOTO_LEGACY_FILE_LOCATION
                 id = value.id
                 accessHash = value.accessHash
             }
@@ -117,7 +114,7 @@ class AccessHashGetter :
                     minUsers[value.id] = null
                     return true
                 } else {
-                    objectType = ObjectType.USER
+                    peerType = PeerType.USER
                     id = value.id.toLong()
                     accessHash = value.accessHash ?: return true
                 }
@@ -127,107 +124,107 @@ class AccessHashGetter :
                     minChannels[value.id] = null
                     return true
                 } else {
-                    objectType = ObjectType.CHANNEL
+                    peerType = PeerType.CHANNEL
                     id = value.id.toLong()
                     accessHash = value.accessHash ?: return true
                 }
             }
             is ChannelForbiddenObject -> {
-                objectType = ObjectType.CHANNEL
+                peerType = PeerType.CHANNEL
                 id = value.id.toLong()
                 accessHash = value.accessHash
             }
             is PhotoObject -> {
-                objectType = ObjectType.PHOTO
+                peerType = PeerType.PHOTO
                 id = value.id
                 accessHash = value.accessHash
             }
             is EncryptedChatWaitingObject -> {
-                objectType = ObjectType.ENCRYPTED_CHAT
+                peerType = PeerType.ENCRYPTED_CHAT
                 id = value.id.toLong()
                 accessHash = value.accessHash
             }
             is EncryptedChatRequestedObject -> {
-                objectType = ObjectType.ENCRYPTED_CHAT
+                peerType = PeerType.ENCRYPTED_CHAT
                 id = value.id.toLong()
                 accessHash = value.accessHash
             }
             is EncryptedChatObject -> {
-                objectType = ObjectType.ENCRYPTED_CHAT
+                peerType = PeerType.ENCRYPTED_CHAT
                 id = value.id.toLong()
                 accessHash = value.accessHash
             }
             is InputEncryptedChatObject -> {
-                objectType = ObjectType.ENCRYPTED_CHAT
+                peerType = PeerType.ENCRYPTED_CHAT
                 id = value.chatId.toLong()
                 accessHash = value.accessHash
             }
             is EncryptedFileObject -> {
-                objectType = ObjectType.ENCRYPTED_FILE
+                peerType = PeerType.ENCRYPTED_FILE
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputEncryptedFileObject -> {
-                objectType = ObjectType.ENCRYPTED_FILE
+                peerType = PeerType.ENCRYPTED_FILE
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputDocumentObject -> {
-                objectType = ObjectType.DOCUMENT
+                peerType = PeerType.DOCUMENT
                 id = value.id
                 accessHash = value.accessHash
             }
             is DocumentObject -> {
-                objectType = ObjectType.DOCUMENT
+                peerType = PeerType.DOCUMENT
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputChannelObject -> {
-                objectType = ObjectType.CHANNEL
+                peerType = PeerType.CHANNEL
                 id = value.channelId.toLong()
                 accessHash = value.accessHash
             }
             is InputBotInlineMessageIDObject -> {
-                objectType = ObjectType.BOT_INLINE
+                peerType = PeerType.BOT_INLINE
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputSecureFileObject -> {
-                objectType = ObjectType.SECURE_FILE
+                peerType = PeerType.SECURE_FILE
                 id = value.id
                 accessHash = value.accessHash
             }
             is SecureFileObject -> {
-                objectType = ObjectType.SECURE_FILE
+                peerType = PeerType.SECURE_FILE
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputWallPaperObject -> {
-                objectType = ObjectType.WALLPAPER
+                peerType = PeerType.WALLPAPER
                 id = value.id
                 accessHash = value.accessHash
             }
             is InputThemeObject -> {
-                objectType = ObjectType.THEME
+                peerType = PeerType.THEME
                 id = value.id
                 accessHash = value.accessHash
             }
             is ThemeObject -> {
-                objectType = ObjectType.THEME
+                peerType = PeerType.THEME
                 id = value.id
                 accessHash = value.accessHash
             }
 
             else -> return true
         }
-        map.getOrPut(objectType.toString()) { mutableMapOf() }[id] = accessHash
+        map.getOrPut(peerType.toString()) { mutableMapOf() }[id] = accessHash
         return true
     }
 }
 
 class MinGetter(
-    val minUsers: MutableMap<Int, Pair<PeerType, Int>?>,
-    val minChannels: MutableMap<Int, Pair<PeerType, Int>?>
+    val minUsers: MutableMap<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>,
+    val minChannels: MutableMap<Int, Pair<tk.hack5.telekram.core.tl.PeerType, Int>?>
 ) : TLWalker<Nothing>() {
     // TODO: reduce code duplication
     override fun handle(key: String, value: TLObject<*>?): Boolean {
@@ -396,25 +393,41 @@ open class UpdateHandlerImpl(
         MinGetter(minUsers, minChannels).walk(update)
         minUsers.forEach {
             it.value ?: return@forEach
-            val (type, peerId) = when (val peer = it.value!!.first) {
-                is PeerUserObject -> ObjectType.MIN_USER_IN_USER to peer.userId
-                is PeerChatObject -> ObjectType.MIN_USER_IN_CHAT to peer.chatId
-                is PeerChannelObject -> ObjectType.MIN_USER_IN_CHANNEL to peer.channelId
+            val (peerType, peerId) = when (val peer = it.value!!.first) {
+                is PeerUserObject -> 0 to peer.userId
+                is PeerChatObject -> 1 to peer.chatId
+                is PeerChannelObject -> 2 to peer.channelId
             }
-            // pack peerId and msgId into a single Long (msgId is in lower-order bits)
-            ret.getOrPut(type.toString()) { mutableMapOf() }[it.key.toLong()] =
-                peerId.toLong().shl(32).or(it.value!!.second.toLong().and(0xffffffffL))
+            /*
+            Pack peerId and msgId into a single Long (msgId is in lower-order bits):
+            Because both peerId and msgId are actually unsigned, we have 2 spare bits in which to store extra information
+            These 2 extra bits are used to store the type of the referencing peer - user, chat or channel
+            user -> 0
+            chat -> 1
+            channel -> 2
+            ERROR -> 3
+             */
+            ret.getOrPut(PeerType.MIN_USER.toString()) { mutableMapOf() }[it.key.toLong()] =
+                peerType.toLong().shl(62) or peerId.toLong().shl(31) or it.value!!.second.toLong().and(0xffffffffL)
         }
         minChannels.forEach {
             it.value ?: return@forEach
-            val (type, peerId) = when (val peer = it.value!!.first) {
-                is PeerUserObject -> ObjectType.MIN_CHANNEL_IN_USER to peer.userId
-                is PeerChatObject -> ObjectType.MIN_CHANNEL_IN_CHAT to peer.chatId
-                is PeerChannelObject -> ObjectType.MIN_CHANNEL_IN_CHANNEL to peer.channelId
+            val (peerType, peerId) = when (val peer = it.value!!.first) {
+                is PeerUserObject -> 0 to peer.userId
+                is PeerChatObject -> 1 to peer.chatId
+                is PeerChannelObject -> 2 to peer.channelId
             }
-            // pack peerId and msgId into a single Long (msgId is in lower-order bits)
-            ret.getOrPut(type.toString()) { mutableMapOf() }[it.key.toLong()] =
-                peerId.toLong().shl(32).or(it.value!!.second.toLong().and(0xffffffffL))
+            /*
+            Pack peerId and msgId into a single Long (msgId is in lower-order bits):
+            Because both peerId and msgId are actually unsigned, we have 2 spare bits in which to store extra information
+            These 2 extra bits are used to store the type of the referencing peer - user, chat or channel
+            user -> 0
+            chat -> 1
+            channel -> 2
+            ERROR -> 3
+             */
+            ret.getOrPut(PeerType.MIN_CHANNEL.toString()) { mutableMapOf() }[it.key.toLong()] =
+                peerType.toLong().shl(62) or peerId.toLong().shl(31) or it.value!!.second.toLong().and(0xffffffffL)
         }
         return ret
     }
@@ -432,7 +445,7 @@ open class UpdateHandlerImpl(
                 return
             }
             is UpdateShortMessageObject -> {
-                if (client.getAccessHash(ObjectType.USER, updates.userId) == null) {
+                if (client.getAccessHash(PeerType.USER, updates.userId) == null) {
                     refetch = updates.userId
                 }
                 listOf(
@@ -462,7 +475,7 @@ open class UpdateHandlerImpl(
                 )
             }
             is UpdateShortChatMessageObject -> {
-                if (client.getAccessHash(ObjectType.USER, updates.fromId) == null) {
+                if (client.getAccessHash(PeerType.USER, updates.fromId) == null) {
                     refetch = updates.fromId
                 }
                 listOf(
@@ -613,7 +626,7 @@ open class UpdateHandlerImpl(
         skipDispatch: Boolean
     ) {
         refetch?.let {
-            if (client.getAccessHash(ObjectType.USER, it) == null) {
+            if (client.getAccessHash(PeerType.USER, it) == null) {
                 fetchHashes(applicablePts!!, update.ptsCount ?: 1)
             }
         }
@@ -727,7 +740,7 @@ open class UpdateHandlerImpl(
     }
 
     protected suspend fun fetchChannelUpdates(channelId: Int) {
-        val inputChannel = InputChannelObject(channelId, client.getAccessHash(ObjectType.CHANNEL, channelId)!!)
+        val inputChannel = PeerChannelObject(channelId).toInputChannel(client)
         val pts = act {
             val pts = updateState.pts[channelId]
             if (pts == null) {
@@ -870,7 +883,7 @@ sealed class UpdateOrSkipped(open val update: UpdateType?)
 data class Update(override val update: UpdateType) : UpdateOrSkipped(update)
 data class Skipped(val channelId: Int?) : UpdateOrSkipped(null)
 
-private val MessageType.toId: PeerType?
+private val MessageType.toId: tk.hack5.telekram.core.tl.PeerType?
     get() = when (this) {
         is MessageEmptyObject -> null
         is MessageObject -> toId

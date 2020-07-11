@@ -30,7 +30,6 @@ suspend fun TelegramClient.getDialogs(
     folderId: Int? = null
 ) =
     iter<Dialog, Triple<Int, Int, InputPeerType>> { input ->
-        println("itering dialogs")
         when (val dialogs = this(
             Messages_GetDialogsRequest(
                 excludePinned, folderId, input?.first ?: offsetDate, input?.second ?: offsetId,
@@ -46,12 +45,12 @@ suspend fun TelegramClient.getDialogs(
                     dialogs.dialogs.find { lastMessageId == (it as? DialogObject)?.peer?.id } as DialogObject?
                 lastDialog!!
                 Pair(
-                    nonFolders.map { Dialog(it, dialogs) },
-                    Triple(lastMessage.date!!, lastMessage.id, dialogs.getInputPeer(lastDialog))
+                    nonFolders.map { Dialog(it, dialogs, this) },
+                    Triple(lastMessage.date!!, lastMessage.id, dialogs.getInputPeer(lastDialog, this))
                 )
             }
             is Messages_DialogsObject -> {
-                Pair(dialogs.dialogs.map { Dialog(it, dialogs) }, null)
+                Pair(dialogs.dialogs.map { Dialog(it, dialogs, this) }, null)
             }
             is Messages_DialogsNotModifiedObject -> error("dialog hash NI")
         }
@@ -61,17 +60,18 @@ sealed class Dialog {
     abstract val dialog: DialogType
 
     companion object {
-        operator fun invoke(dialog: DialogType, dialogs: Messages_DialogsType) = when (dialog) {
-            is DialogObject -> DialogChat(
-                dialog,
-                dialogs.getPeer(dialog),
-                dialogs.getInputPeer(dialog)
-            )
-            is DialogFolderObject -> DialogFolder(
-                dialog,
-                dialog.folder as FolderObject
-            )
-        }
+        suspend operator fun invoke(dialog: DialogType, dialogs: Messages_DialogsType, client: TelegramClient) =
+            when (dialog) {
+                is DialogObject -> DialogChat(
+                    dialog,
+                    dialogs.getPeer(dialog, client),
+                    dialogs.getInputPeer(dialog, client)
+                )
+                is DialogFolderObject -> DialogFolder(
+                    dialog,
+                    dialog.folder as FolderObject
+                )
+            }
     }
 }
 

@@ -40,7 +40,7 @@ import tk.hack5.telekram.core.mtproto.RpcErrorObject
 import tk.hack5.telekram.core.packer.MessagePackerUnpacker
 import tk.hack5.telekram.core.state.*
 import tk.hack5.telekram.core.tl.*
-import tk.hack5.telekram.core.updates.ObjectType
+import tk.hack5.telekram.core.updates.PeerType
 import tk.hack5.telekram.core.updates.UpdateHandler
 import tk.hack5.telekram.core.updates.UpdateHandlerImpl
 import tk.hack5.telekram.core.updates.UpdateOrSkipped
@@ -70,8 +70,8 @@ abstract class TelegramClient {
     abstract suspend fun getMe(): UserObject
     abstract suspend fun getInputMe(): InputPeerUserObject
 
-    abstract suspend fun getAccessHash(constructor: ObjectType, peerId: Int): Long?
-    abstract suspend fun getAccessHash(constructor: ObjectType, peerId: Long): Long?
+    abstract suspend fun getAccessHash(constructor: PeerType, peerId: Int): Long?
+    abstract suspend fun getAccessHash(constructor: PeerType, peerId: Long): Long?
     abstract var updateCallbacks: List<suspend (UpdateOrSkipped) -> Unit>
     abstract suspend fun catchUp()
     abstract suspend fun sendUpdate(update: UpdatesType)
@@ -287,10 +287,10 @@ open class TelegramClientCoreImpl(
         return inputUserSelf
     }
 
-    override suspend fun getAccessHash(constructor: ObjectType, peerId: Int): Long? =
+    override suspend fun getAccessHash(constructor: PeerType, peerId: Int): Long? =
         getAccessHash(constructor, peerId.toLong())
 
-    override suspend fun getAccessHash(constructor: ObjectType, peerId: Long): Long? =
+    override suspend fun getAccessHash(constructor: PeerType, peerId: Long): Long? =
         session.entities[constructor.name]?.get(peerId)
 
     override suspend fun catchUp() = updatesHandler!!.catchUp()

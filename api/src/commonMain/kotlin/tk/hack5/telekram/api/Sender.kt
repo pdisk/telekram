@@ -19,20 +19,21 @@
 package tk.hack5.telekram.api
 
 import tk.hack5.telekram.core.client.TelegramClient
-import tk.hack5.telekram.core.tl.InputPeerUserObject
+import tk.hack5.telekram.core.tl.InputUserType
 import tk.hack5.telekram.core.tl.PeerUserObject
 import tk.hack5.telekram.core.tl.UserObject
 import tk.hack5.telekram.core.tl.Users_GetUsersRequest
+import tk.hack5.telekram.core.utils.toInputUser
 
 interface SenderGetter {
     val senderId: Int?
     val client: TelegramClient
 
     suspend fun getSender(): UserObject? = getInputSender()?.let {
-        client(Users_GetUsersRequest(listOf(it.toInputUser()))).single() as UserObject
+        client(Users_GetUsersRequest(listOf(it))).single() as UserObject
     }
 
-    suspend fun getInputSender(): InputPeerUserObject? = senderId?.let {
-        PeerUserObject(it).toInputPeer(client)
+    suspend fun getInputSender(): InputUserType? = senderId?.let {
+        PeerUserObject(it).toInputUser(client)
     }
 }
