@@ -34,26 +34,31 @@ class BytesObject(private val bytes: ByteArray, override val bare: Boolean) :
 
     override val native = bytes
 
-    override val _id = id
+    override val _id: Int? = null
 
     override val fields by lazy { mapOf<String, TLObject<*>>() }
 
     companion object :
         TLConstructor<BytesObject> {
         @ExperimentalUnsignedTypes
-        override fun _fromTlRepr(data: IntArray): Pair<Int, BytesObject>? {
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, BytesObject>? {
             val arr = data.toByteArray()
             val off: Int
-            val len = if (arr[0] != 0xFE.toByte()) {
+            val len = if (arr[offset * Int.SIZE_BYTES] != 0xFE.toByte()) {
                 off = 1
-                arr[0].toUByte().toInt()
+                arr[offset * Int.SIZE_BYTES].toUByte().toInt()
             } else {
                 off = 4
-                byteArrayOf(arr[1], arr[2], arr[3]).toInt()
+                byteArrayOf(
+                    arr[offset * Int.SIZE_BYTES + 1],
+                    arr[offset * Int.SIZE_BYTES + 2],
+                    arr[offset * Int.SIZE_BYTES + 3]
+                ).toInt()
             }
+            val ret = arr.sliceArray(off + offset * Int.SIZE_BYTES until off + offset * Int.SIZE_BYTES + len)
             return Pair(
                 (off + len + 3) / 4,
-                BytesObject(arr.sliceArray(off until off + len), true)
+                BytesObject(ret, true)
             )
         }
 

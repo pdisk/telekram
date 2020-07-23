@@ -36,7 +36,6 @@ enum class EntryType {
     METHOD,
 }
 
-@ExperimentalUnsignedTypes
 interface TLEntry {
     val id: Int
     val name: String
@@ -45,7 +44,6 @@ interface TLEntry {
     val entryType: EntryType
 }
 
-@ExperimentalUnsignedTypes
 @Serializable
 data class TLConstructor(
     override val id: Int,
@@ -58,7 +56,6 @@ data class TLConstructor(
     override val type = fixName(_type)
 }
 
-@ExperimentalUnsignedTypes
 @Serializable
 data class TLMethod(
     override val id: Int,

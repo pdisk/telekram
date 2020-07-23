@@ -25,17 +25,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
 import tk.hack5.telekram.core.client.TelegramClient
+import tk.hack5.telekram.core.errors.BadRequestError
 import tk.hack5.telekram.core.state.UpdateState
 import tk.hack5.telekram.core.tl.*
-import tk.hack5.telekram.core.utils.BaseActor
-import tk.hack5.telekram.core.utils.TLWalker
-import tk.hack5.telekram.core.utils.toInputChannel
+import tk.hack5.telekram.core.utils.*
 
 enum class PeerType {
     USER,
     CHANNEL,
-    MIN_USER,
-    MIN_CHANNEL,
     PHOTO,
     ENCRYPTED_FILE_LOCATION,
     DOCUMENT_FILE_LOCATION,
@@ -49,7 +46,6 @@ enum class PeerType {
     BOT_INLINE,
     THEME,
     SECURE_FILE
-
 }
 
 class AccessHashGetter :
@@ -232,7 +228,6 @@ class MinGetter(
             /* there are some things that don't make sense to handle:
                - if a user was seen in a private chat, constructing an InputPeerUserFromMessage
                  would require us to already have their InputPeer
-
              */
             is MessageObject -> {
                 value.fromId?.let {
@@ -365,20 +360,39 @@ class MinGetter(
     }
 }
 
+class PtsGetter : TLWalker<Map<Int, Int>>() {
+    override val result = mutableMapOf<Int, Int>()
+
+    override fun handle(key: String, value: TLObject<*>?): Boolean {
+        when (value) {
+            is ChannelFullObject -> result[value.id] = value.pts
+            is DialogObject -> value.pts?.let {
+                result[(value.peer as PeerChannelObject).channelId] = it
+            }
+            is Messages_ChannelMessagesObject -> {
+                // TODO do something?
+            }
+        }
+        return true
+    }
+}
+
 interface UpdateHandler {
-    suspend fun getEntities(update: TLObject<*>): Map<String, MutableMap<Long, Long>>
+    suspend fun getEntities(value: TLObject<*>, forUpdate: Boolean): Map<String, MutableMap<Long, Long>>
     suspend fun handleUpdates(update: TLObject<*>)
     val updates: Channel<UpdateOrSkipped>
     suspend fun catchUp()
 }
 
+
 open class UpdateHandlerImpl(
-    scope: CoroutineScope,
+    protected val scope: CoroutineScope,
     protected val updateState: UpdateState,
     val client: TelegramClient,
     protected val maxDifference: Int? = null,
     val maxChannelDifference: Int = 100
 ) : BaseActor(scope), UpdateHandler {
+    // WARNING: do NOT invoke any request that returns any type handled by [PtsWalker] while locked in act {} without skipEntities=true
     val pendingUpdatesSeq = mutableMapOf<Int, CompletableJob>()
     val pendingUpdatesPts = mutableMapOf<Pair<Int?, Int>, CompletableJob>()
 
@@ -388,47 +402,47 @@ open class UpdateHandlerImpl(
         if (update is UpdatesType) handleUpdates(update)
     }
 
-    override suspend fun getEntities(update: TLObject<*>): Map<String, MutableMap<Long, Long>> {
-        val (ret, minUsers, minChannels) = AccessHashGetter().walk(update)!!
-        MinGetter(minUsers, minChannels).walk(update)
-        minUsers.forEach {
-            it.value ?: return@forEach
-            val (peerType, peerId) = when (val peer = it.value!!.first) {
-                is PeerUserObject -> 0 to peer.userId
-                is PeerChatObject -> 1 to peer.chatId
-                is PeerChannelObject -> 2 to peer.channelId
+    override suspend fun getEntities(value: TLObject<*>, forUpdate: Boolean): Map<String, MutableMap<Long, Long>> {
+        val (ret, minUsers, minChannels) = AccessHashGetter().walk(value)!!
+        MinGetter(minUsers, minChannels).walk(value)
+        if (!forUpdate) {
+            val pts = PtsGetter().walk(value)!!
+            if (pts.isNotEmpty()) {
+                act {
+                    updateState.pts.putAll(pts)
+                }
             }
-            /*
-            Pack peerId and msgId into a single Long (msgId is in lower-order bits):
-            Because both peerId and msgId are actually unsigned, we have 2 spare bits in which to store extra information
-            These 2 extra bits are used to store the type of the referencing peer - user, chat or channel
-            user -> 0
-            chat -> 1
-            channel -> 2
-            ERROR -> 3
-             */
-            ret.getOrPut(PeerType.MIN_USER.toString()) { mutableMapOf() }[it.key.toLong()] =
-                peerType.toLong().shl(62) or peerId.toLong().shl(31) or it.value!!.second.toLong().and(0xffffffffL)
         }
-        minChannels.forEach {
-            it.value ?: return@forEach
-            val (peerType, peerId) = when (val peer = it.value!!.first) {
-                is PeerUserObject -> 0 to peer.userId
-                is PeerChatObject -> 1 to peer.chatId
-                is PeerChannelObject -> 2 to peer.channelId
+        val users = minUsers.map {
+            val inputPeer = try {
+                it.value?.first?.toInputPeer(client) ?: return@map null
+            } catch (e: EntityNotFoundException) {
+                return@map null
             }
-            /*
-            Pack peerId and msgId into a single Long (msgId is in lower-order bits):
-            Because both peerId and msgId are actually unsigned, we have 2 spare bits in which to store extra information
-            These 2 extra bits are used to store the type of the referencing peer - user, chat or channel
-            user -> 0
-            chat -> 1
-            channel -> 2
-            ERROR -> 3
-             */
-            ret.getOrPut(PeerType.MIN_CHANNEL.toString()) { mutableMapOf() }[it.key.toLong()] =
-                peerType.toLong().shl(62) or peerId.toLong().shl(31) or it.value!!.second.toLong().and(0xffffffffL)
-        }
+            InputUserFromMessageObject(inputPeer, it.value!!.second, it.key)
+        }.filterNotNull()
+        val channels = minChannels.map {
+            val inputPeer = try {
+                it.value?.first?.toInputPeer(client) ?: return@map null
+            } catch (e: EntityNotFoundException) {
+                return@map null
+            }
+            InputChannelFromMessageObject(inputPeer, it.value!!.second, it.key)
+        }.filterNotNull()
+
+        // we will be called for the result but it wont be min
+        if (users.isNotEmpty())
+            try {
+                client(Users_GetUsersRequest(users), forUpdate = true) // TODO handle slices
+            } catch (e: BadRequestError.MsgIdInvalidError) {
+                // TODO divide-and-conquer to get the ones that do work
+            }
+        if (channels.isNotEmpty())
+            try {
+                client(Channels_GetChannelsRequest(channels), forUpdate = true) // TODO handle slices
+            } catch (e: BadRequestError.MsgIdInvalidError) {
+                // TODO divide-and-conquer to get the ones that do work
+            }
         return ret
     }
 
@@ -441,11 +455,14 @@ open class UpdateHandlerImpl(
         var refetch: Int? = null
         val innerUpdates = when (updates) {
             is UpdatesTooLongObject -> {
-                fetchUpdates()
+                if (!skipChecks)
+                    fetchUpdates()
                 return
             }
             is UpdateShortMessageObject -> {
-                if (client.getAccessHash(PeerType.USER, updates.userId) == null) {
+                try {
+                    PeerUserObject(updates.userId).toInputUser(client)
+                } catch (e: Exception) {
                     refetch = updates.userId
                 }
                 listOf(
@@ -508,113 +525,125 @@ open class UpdateHandlerImpl(
             is UpdatesCombinedObject -> updates.updates
             is UpdatesObject -> updates.updates
             is UpdateShortSentMessageObject -> return // handled by rpc caller
+        }.filter {
+            if (it is UpdateChannelTooLongObject) {
+                if (skipChecks)
+                    fetchChannelUpdatesLocked(it.channelId)
+                else
+                    fetchChannelUpdates(it.channelId)
+                false
+            } else {
+                true
+            }
         }
-        act {
-            updates.date?.let { checkDateLocked(it) }
+
+        if (!skipChecks) {
+            act {
+                updates.date?.let { checkDateLocked(it) }
+            }
         }
         val (hasPts, hasNoPts) = innerUpdates.partition { it.pts != null }
         for (update in hasPts) {
             val pts = update.pts!!
             val ptsCount = update.ptsCount
-            if (update is UpdateChannelTooLongObject) {
-                fetchChannelUpdates(update.channelId)
-                return
-            }
-            val (localPts, applicablePts, job) = act {
-                val localPts = updateState.pts[update.channelId]
-                val applicablePts = pts - ptsCount!!
+            if (!skipChecks) {
+                val (applicablePts, job) = act {
+                    val localPts = updateState.pts[update.channelId]
+                    val applicablePts = pts - ptsCount!!
 
-                val job = when {
-                    (ptsCount == 0 && pts >= localPts?.minus(1) ?: 0)
-                            || applicablePts == 0 || skipChecks -> {
-                        // update doesn't need to change the pts
-                        if (update is UpdateNewMessageObject) {
-                            Napier.d("$refetch, $applicablePts, $update, true")
+                    val job = when {
+                        (ptsCount == 0 && pts >= localPts?.minus(1) ?: 0)
+                                || applicablePts == 0 || skipChecks -> {
+                            // update doesn't need to change the pts
+                            handleSinglePtsLocked(refetch, applicablePts, update, true, skipDispatch)
+                            null
                         }
-                        handleSinglePtsLocked(refetch, applicablePts, update, true, skipDispatch)
-                        null
+                        applicablePts == localPts || localPts == null -> {
+                            if (update is UpdateNewMessageObject) {
+                                Napier.d("$refetch, $applicablePts, $update, false")
+                            }
+                            handleSinglePtsLocked(refetch, applicablePts, update, false, skipDispatch)
+                            null
+                        }
+                        applicablePts < localPts -> {
+                            Napier.d("Duplicate update $update (localPts=$localPts)", tag = tag)
+                            null
+                        }
+                        else -> {
+                            val job = Job()
+                            pendingUpdatesPts[update.channelId to applicablePts] = job
+                            job
+                        }
                     }
-                    applicablePts == localPts || localPts == null -> {
-                        if (update is UpdateNewMessageObject) {
-                            Napier.d("$refetch, $applicablePts, $update, false")
+                    Pair(applicablePts, job)
+                }
+                job?.let {
+                    Napier.d("Waiting for update with pts=$applicablePts, channelId=${update.channelId}")
+                    val join = withTimeoutOrNull(500) {
+                        it.join()
+                    }
+                    pendingUpdatesPts.remove(update.channelId to applicablePts)
+                    if (join == null) {
+                        if (update.channelId != null) {
+                            fetchChannelUpdates(update.channelId!!)
+                        } else {
+                            fetchUpdates()
                         }
+                        return // server will resend this update too
+                    }
+
+                    act {
                         handleSinglePtsLocked(refetch, applicablePts, update, false, skipDispatch)
+                    }
+                }
+            } else {
+                handleSinglePtsLocked(refetch, 0 /* we always have the full update */, update, true, skipDispatch)
+            }
+        }
+        if (!skipChecks) {
+            val (localSeq, applicableSeq, job) = act {
+                val applicableSeq = updates.seqStart?.minus(1)
+                val localSeq = updateState.seq
+                val job = when {
+                    applicableSeq == null || applicableSeq == -1 || skipChecks -> {
+                        // update order doesn't matter
+                        handleSingleSeqLocked(hasNoPts, updates, true, skipDispatch)
                         null
                     }
-                    applicablePts < localPts -> {
-                        Napier.d("Duplicate update $update (localPts=$localPts)", tag = tag)
+                    applicableSeq == localSeq -> {
+                        handleSingleSeqLocked(hasNoPts, updates, false, skipDispatch)
+                        null
+                    }
+                    applicableSeq < localSeq -> {
+                        Napier.d("Duplicate updates $updates (localSeq=$localSeq)", tag = tag)
                         null
                     }
                     else -> {
-                        //require(!preventGapFilling) { "Gap found in gap refill($applicablePts, $localPts, ${update.channelId})" }
                         val job = Job()
-                        pendingUpdatesPts[update.channelId to applicablePts] = job
+                        pendingUpdatesSeq[applicableSeq] = job
                         job
                     }
                 }
-                Triple(localPts, applicablePts, job)
+                Triple(localSeq, applicableSeq, job)
             }
             job?.let {
-                Napier.d("Waiting for update with pts=$applicablePts, channelId=${update.channelId}")
+                Napier.d("Waiting for update with seq=$applicableSeq (current=$localSeq, updates=$updates)", tag = tag)
                 val join = withTimeoutOrNull(500) {
                     it.join()
                 }
-                pendingUpdatesPts.remove(update.channelId to applicablePts)
                 if (join == null) {
-                    if (update.channelId != null) {
-                        fetchChannelUpdates(update.channelId!!)
-                    } else {
-                        fetchUpdates()
+                    act {
+                        pendingUpdatesSeq.remove(applicableSeq)
                     }
+                    fetchUpdates()
                     return // server will resend this update too
                 }
-
                 act {
-                    handleSinglePtsLocked(refetch, applicablePts, update, false, skipDispatch)
-                }
-            }
-        }
-
-        val (localSeq, applicableSeq, job) = act {
-            val applicableSeq = updates.seqStart?.minus(1)
-            val localSeq = updateState.seq
-            val job = when {
-                applicableSeq == null || applicableSeq == -1 || skipChecks -> {
-                    // update order doesn't matter
-                    handleSingleSeqLocked(hasNoPts, updates, true, skipDispatch)
-                    null
-                }
-                applicableSeq == localSeq -> {
                     handleSingleSeqLocked(hasNoPts, updates, false, skipDispatch)
-                    null
-                }
-                applicableSeq < localSeq -> {
-                    Napier.d("Duplicate updates $updates (localSeq=$localSeq)", tag = tag)
-                    null
-                }
-                else -> {
-                    val job = Job()
-                    pendingUpdatesSeq[applicableSeq] = job
-                    job
                 }
             }
-            Triple(localSeq, applicableSeq, job)
-        }
-        job?.let {
-            Napier.d("Waiting for update with seq=$applicableSeq (current=$localSeq, updates=$updates)", tag = tag)
-            val join = withTimeoutOrNull(500) {
-                it.join()
-            }
-            if (join == null) {
-                act {
-                    pendingUpdatesSeq.remove(applicableSeq)
-                }
-                fetchUpdates()
-                return // server will resend this update too
-            }
-            act {
-                handleSingleSeqLocked(hasNoPts, updates, false, skipDispatch)
-            }
+        } else {
+            handleSingleSeqLocked(hasNoPts, updates, true, skipDispatch)
         }
     }
 
@@ -633,7 +662,7 @@ open class UpdateHandlerImpl(
         if (!skipDispatch)
             dispatchUpdate(update)
         if (!skipPts) {
-            Napier.d("settings pts to ${update.pts}")
+            Napier.d("setting pts to ${update.pts}")
             updateState.pts[update.channelId] = update.pts!!
             pendingUpdatesPts[update.channelId to update.pts!!]?.complete()
         }
@@ -664,7 +693,7 @@ open class UpdateHandlerImpl(
                 limit,
                 updateState.date,
                 updateState.qts
-            )
+            ), forUpdate = true
         )
         // no matter the result, we can't do anything about it
     }
@@ -684,56 +713,61 @@ open class UpdateHandlerImpl(
     protected suspend fun fetchUpdates() {
         val updates = mutableListOf<UpdateType>()
         var tmpState: Updates_StateObject? = null
-        loop@ while (true) {
-            var seqStart = -1 // compiler doesn't know act{} always calls once
-            val difference = client(
-                act {
-                    seqStart = (tmpState?.seq ?: updateState.seq) + 1
+        act {
+            loop@ while (true) {
+                val seqStart = (tmpState?.seq ?: updateState.seq) + 1
+                val difference = client(
                     Updates_GetDifferenceRequest(
                         tmpState?.pts ?: updateState.pts[null]!!,
                         maxDifference,
                         tmpState?.date ?: updateState.date,
                         tmpState?.qts ?: updateState.qts
-                    )
-                }
-            )
-            Napier.d("difference=$difference")
-            when (difference) {
-                is Updates_DifferenceObject -> {
-                    val state = difference.state as Updates_StateObject
-                    handleUpdates(
-                        UpdatesCombinedObject(
-                            updates + generateUpdates(
-                                difference.otherUpdates,
-                                difference.newMessages,
-                                difference.newEncryptedMessages,
-                                ::UpdateNewMessageObject
-                            ),
-                            difference.users,
-                            difference.chats,
-                            state.date,
-                            seqStart,
-                            state.seq
-                        ), true
-                    )
-                    break@loop
-                }
-                is Updates_DifferenceSliceObject -> {
-                    tmpState = difference.intermediateState as Updates_StateObject
-                    updates += generateUpdates(
-                        difference.otherUpdates,
-                        difference.newMessages,
-                        difference.newEncryptedMessages,
-                        ::UpdateNewMessageObject
-                    )
-                }
-                is Updates_DifferenceEmptyObject -> break@loop
-                is Updates_DifferenceTooLongObject -> {
-                    act {
+                    ), forUpdate = true
+                )
+                Napier.d("difference=$difference")
+                when (difference) {
+                    is Updates_DifferenceObject -> {
+                        val state = difference.state as Updates_StateObject
+                        handleUpdates(
+                            UpdatesCombinedObject(
+                                updates + generateUpdates(
+                                    difference.otherUpdates,
+                                    difference.newMessages,
+                                    difference.newEncryptedMessages,
+                                    ::UpdateNewMessageObject
+                                ),
+                                difference.users,
+                                difference.chats,
+                                state.date,
+                                seqStart,
+                                state.seq
+                            ), true
+                        )
+                        updateState.date = state.date
+                        updateState.pts[null] = state.pts
+                        updateState.qts = state.qts
+                        updateState.seq = state.seq
+                        break@loop
+                    }
+                    is Updates_DifferenceSliceObject -> {
+                        tmpState = difference.intermediateState as Updates_StateObject
+                        updates += generateUpdates(
+                            difference.otherUpdates,
+                            difference.newMessages,
+                            difference.newEncryptedMessages,
+                            ::UpdateNewMessageObject
+                        )
+                    }
+                    is Updates_DifferenceEmptyObject -> {
+                        updateState.seq = difference.seq
+                        updateState.date = difference.date
+                        break@loop
+                    }
+                    is Updates_DifferenceTooLongObject -> {
                         require(this.updates.offer(Skipped(null))) { "Failed to offer drop message" }
                         updateState.pts[null] = difference.pts
+                        break@loop
                     }
-                    break@loop
                 }
             }
         }
@@ -741,16 +775,32 @@ open class UpdateHandlerImpl(
 
     protected suspend fun fetchChannelUpdates(channelId: Int) {
         val inputChannel = PeerChannelObject(channelId).toInputChannel(client)
-        val pts = act {
-            val pts = updateState.pts[channelId]
-            if (pts == null) {
-                updateState.pts[channelId] =
-                    ((client(Channels_GetFullChannelRequest(inputChannel)) as Messages_ChatFullObject).fullChat as ChannelFullObject).pts
-                null
-            } else {
-                pts
+        while (true) {
+            val ret = act {
+                fetchChannelUpdatesInnerLocked(channelId, inputChannel)
             }
-        } ?: return
+            if (ret) break
+        }
+    }
+
+    protected suspend fun fetchChannelUpdatesLocked(channelId: Int) {
+        val inputChannel = PeerChannelObject(channelId).toInputChannel(client)
+        while (true) {
+            val ret = fetchChannelUpdatesInnerLocked(channelId, inputChannel)
+            if (ret) break
+        }
+    }
+
+    protected suspend fun fetchChannelUpdatesInnerLocked(channelId: Int, inputChannel: InputChannelType): Boolean {
+        val pts = updateState.pts[channelId]
+        if (pts == null) {
+            updateState.pts[channelId] =
+                ((client(
+                    Channels_GetFullChannelRequest(inputChannel),
+                    forUpdate = true
+                ) as Messages_ChatFullObject).fullChat as ChannelFullObject).pts
+            return true
+        }
         val result = client(
             Updates_GetChannelDifferenceRequest(
                 true,
@@ -758,12 +808,11 @@ open class UpdateHandlerImpl(
                 ChannelMessagesFilterEmptyObject(),
                 pts,
                 maxChannelDifference
-            )
+            ), forUpdate = true
         )
         Napier.d("difference = $result")
         when (result) {
-            is Updates_ChannelDifferenceEmptyObject -> {
-            }
+            is Updates_ChannelDifferenceEmptyObject -> return result.final
             is Updates_ChannelDifferenceObject -> {
                 handleUpdates(
                     UpdatesObject(
@@ -779,18 +828,19 @@ open class UpdateHandlerImpl(
                         0
                     ), true
                 )
-                act {
-                    updateState.pts[channelId] = result.pts
-                } // updates sent in the difference may not have a pts
-                if (!result.final) {
-                    fetchChannelUpdates(channelId)
+                updateState.pts[channelId] =
+                    result.pts // updates sent in the difference have wrong pts, but are sorted
+                if (result.final) {
+                    return true
                 }
             }
-            is Updates_ChannelDifferenceTooLongObject -> act {
-                updates.offer(Skipped(channelId))
+            is Updates_ChannelDifferenceTooLongObject -> {
+                require(updates.offer(Skipped(channelId))) { "Failed to offer drop message" }
                 updateState.pts[channelId] = (result.dialog as DialogObject).pts!!
+                return true
             }
         }
+        return false
     }
 
     protected fun generateUpdates(

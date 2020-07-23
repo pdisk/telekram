@@ -27,43 +27,15 @@ import tk.hack5.telekram.core.updates.PeerType
 fun ChatObject.toInputChat(): InputPeerChatObject = InputPeerChatObject(id)
 fun PeerChatObject.toInputChat(): InputPeerChatObject = InputPeerChatObject(chatId)
 
-suspend fun UserObject.toInputUser(client: TelegramClient, allowMin: Boolean = true): InputUserType {
+suspend fun UserObject.toInputUser(client: TelegramClient): InputUserType {
     return if (min) {
-        PeerUserObject(id).toInputUser(client, allowMin)
+        PeerUserObject(id).toInputUser(client)
     } else {
         InputUserObject(id, accessHash!!)
     }
 }
 
-suspend fun PeerUserObject.toInputUser(client: TelegramClient, allowMin: Boolean = true): InputUserType {
-    val accessHash = client.getAccessHash(PeerType.USER, userId)
-    if (accessHash == null) {
-        if (!allowMin) return getInputUser(client) ?: throw EntityNotFoundException(
-            PeerType.USER,
-            userId
-        )
-        val packedData = client.getAccessHash(PeerType.MIN_USER, userId)
-            ?: return getInputUser(client) ?: throw EntityNotFoundException(
-                PeerType.USER,
-                userId
-            )
-        val msgId = packedData.and(0x7fffffff).toInt()
-        val peerId = packedData.ushr(31).and(0x7fffffff).toInt()
-        val peer = try {
-            when (val peerType = packedData.ushr(62).and(3).toInt()) {
-                0 -> PeerUserObject(peerId).toInputUser(client, false).toInputPeer()
-                1 -> PeerChatObject(peerId).toInputChat()
-                2 -> PeerChannelObject(peerId).toInputChannel(client, false).toInputPeer()
-                else -> error("Unknown peer type $peerType")
-            }
-        } catch (e: EntityNotFoundException) {
-            return getInputUser(client) ?: throw EntityNotFoundException(
-                PeerType.USER,
-                userId
-            )
-        }
-        return InputUserFromMessageObject(peer, msgId, userId)
-    }
+suspend fun PeerUserObject.toInputUser(client: TelegramClient): InputUserType {
     return InputUserObject(
         userId, client.getAccessHash(PeerType.USER, userId)
             ?: return getInputUser(client)
@@ -81,46 +53,19 @@ private suspend fun PeerUserObject.getInputUser(client: TelegramClient): InputUs
                 )
             )
         )
-    ).singleOrNull() as? UserObject)?.toInputUser(client, true)
+    ).singleOrNull() as? UserObject)?.toInputUser(client)
 }
 
-suspend fun ChannelObject.toInputChannel(client: TelegramClient, allowMin: Boolean = true): InputChannelType {
+suspend fun ChannelObject.toInputChannel(client: TelegramClient): InputChannelType {
     return if (min) {
-        PeerChannelObject(id).toInputChannel(client, allowMin)
+        PeerChannelObject(id).toInputChannel(client)
     } else {
         InputChannelObject(id, accessHash!!)
     }
 }
 
-suspend fun PeerChannelObject.toInputChannel(client: TelegramClient, allowMin: Boolean = true): InputChannelType {
-    val accessHash = client.getAccessHash(PeerType.CHANNEL, channelId)
-    if (accessHash == null) {
-        if (!allowMin) return getInputChannel(client) ?: throw EntityNotFoundException(
-            PeerType.CHANNEL,
-            channelId
-        )
-        val packedData = client.getAccessHash(PeerType.MIN_CHANNEL, channelId)
-            ?: return getInputChannel(client) ?: throw EntityNotFoundException(
-                PeerType.CHANNEL,
-                channelId
-            )
-        val msgId = packedData.and(0x7fffffff).toInt()
-        val peerId = packedData.ushr(31).and(0x7fffffff).toInt()
-        val peer = try {
-            when (val peerType = packedData.ushr(62).and(3).toInt()) {
-                0 -> PeerUserObject(peerId).toInputUser(client, false).toInputPeer()
-                1 -> PeerChatObject(peerId).toInputChat()
-                2 -> PeerChannelObject(peerId).toInputChannel(client, false).toInputPeer()
-                else -> error("Unknown peer type $peerType")
-            }
-        } catch (e: EntityNotFoundException) {
-            return getInputChannel(client) ?: throw EntityNotFoundException(
-                PeerType.CHANNEL,
-                channelId
-            )
-        }
-        return InputChannelFromMessageObject(peer, msgId, channelId)
-    }
+suspend fun PeerChannelObject.toInputChannel(client: TelegramClient): InputChannelType {
+
     return InputChannelObject(
         channelId, client.getAccessHash(PeerType.CHANNEL, channelId)
             ?: return getInputChannel(client)
@@ -138,10 +83,10 @@ private suspend fun PeerChannelObject.getInputChannel(client: TelegramClient): I
                 )
             )
         )
-    ) as? Messages_ChatsObject)?.chats?.singleOrNull() as? ChannelObject)?.toInputChannel(client, true)
+    ) as? Messages_ChatsObject)?.chats?.singleOrNull() as? ChannelObject)?.toInputChannel(client)
 }
 
-suspend fun tk.hack5.telekram.core.tl.PeerType.toInputPeer(client: TelegramClient): InputPeerType? = when (this) {
+suspend fun tk.hack5.telekram.core.tl.PeerType.toInputPeer(client: TelegramClient): InputPeerType = when (this) {
     is PeerUserObject -> toInputUser(client).toInputPeer()
     is PeerChatObject -> toInputChat()
     is PeerChannelObject -> toInputChannel(client).toInputPeer()

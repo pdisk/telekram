@@ -93,7 +93,7 @@ kotlin {
 }
 
 tasks.filter { it.name.startsWith("compileKotlin") }.forEach {
-    it.dependsOn(project(":generator").getTasksByName("run", false).first())
+    //it.dependsOn(project(":generator").getTasksByName("run", false).first())
 }
 
 tasks.dokka {

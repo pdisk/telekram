@@ -53,13 +53,13 @@ class Int128Object(private val int128: BigInteger, override val bare: Boolean) :
         TLConstructor<Int128Object> {
         override val id: Int? = null
 
-        override fun _fromTlRepr(data: IntArray): Pair<Int, Int128Object>? {
-            if (data.size < 4)
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, Int128Object>? {
+            if (data.size < offset + 4)
                 return null
             return Pair(
                 4,
                 Int128Object(
-                    BigInteger(data.sliceArray(0 until 4).toByteArray().reversedArray()),
+                    BigInteger(data.sliceArray(offset until offset + 4).toByteArray().reversedArray()),
                     true
                 )
             )
@@ -93,13 +93,13 @@ class Int256Object(private val int256: BigInteger, override val bare: Boolean) :
         TLConstructor<Int128Object> {
         override val id: Int? = null
 
-        override fun _fromTlRepr(data: IntArray): Pair<Int, Int128Object>? {
-            if (data.size < 8)
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, Int128Object>? {
+            if (data.size < offset + 8)
                 return null
             return Pair(
                 8,
                 Int128Object(
-                    BigInteger(data.sliceArray(0 until 4).toByteArray().reversedArray()),
+                    BigInteger(data.sliceArray(offset until offset + 4).toByteArray().reversedArray()),
                     true
                 )
             )

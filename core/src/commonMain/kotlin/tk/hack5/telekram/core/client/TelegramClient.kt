@@ -36,6 +36,7 @@ import tk.hack5.telekram.core.encoder.PlaintextMTProtoEncoder
 import tk.hack5.telekram.core.errors.BadRequestError
 import tk.hack5.telekram.core.errors.RedirectedError
 import tk.hack5.telekram.core.errors.RpcError
+import tk.hack5.telekram.core.mtproto.PingRequest
 import tk.hack5.telekram.core.mtproto.RpcErrorObject
 import tk.hack5.telekram.core.packer.MessagePackerUnpacker
 import tk.hack5.telekram.core.state.*
@@ -44,6 +45,7 @@ import tk.hack5.telekram.core.updates.PeerType
 import tk.hack5.telekram.core.updates.UpdateHandler
 import tk.hack5.telekram.core.updates.UpdateHandlerImpl
 import tk.hack5.telekram.core.updates.UpdateOrSkipped
+import kotlin.random.Random
 
 private const val tag = "TelegramClient"
 
@@ -57,7 +59,12 @@ abstract class TelegramClient {
         encoder: MTProtoEncoderWrapped
     ): R
 
-    abstract suspend operator fun <N, R : TLObject<N>> invoke(request: TLMethod<R>): N
+    abstract suspend operator fun <N, R : TLObject<N>> invoke(
+        request: TLMethod<R>,
+        skipEntities: Boolean = false,
+        forUpdate: Boolean = false
+    ): N
+
     abstract suspend fun start(
         phoneNumber: () -> String,
         signUpConsent: (Help_TermsOfServiceObject?) -> Pair<String, String>? = { null },
@@ -68,7 +75,7 @@ abstract class TelegramClient {
     abstract suspend fun disconnect()
 
     abstract suspend fun getMe(): UserObject
-    abstract suspend fun getInputMe(): InputPeerUserObject
+    abstract suspend fun getInputMe(): InputUserObject
 
     abstract suspend fun getAccessHash(constructor: PeerType, peerId: Int): Long?
     abstract suspend fun getAccessHash(constructor: PeerType, peerId: Long): Long?
@@ -102,7 +109,8 @@ open class TelegramClientCoreImpl(
     protected var unpacker: MessagePackerUnpacker? = null
     protected var serverConfig: ConfigObject? = null
     protected val updatesChannel = Channel<UpdatesType>(Channel.UNLIMITED)
-    protected lateinit var inputUserSelf: InputPeerUserObject
+    protected val resultsChannel = Channel<TLObject<*>>(Channel.UNLIMITED)
+    protected lateinit var inputUserSelf: InputUserObject
     protected var updatesHandler: UpdateHandler? = null
     lateinit var scope: CoroutineScope
 
@@ -127,16 +135,14 @@ open class TelegramClientCoreImpl(
                     ).also { state ->
                         state.scope = scope
                         encoder = encryptedEncoderConstructor(state)
-                        unpacker = MessagePackerUnpacker(it, encoder!!, state, updatesChannel)
+                        unpacker = MessagePackerUnpacker(it, encoder!!, state, updatesChannel, resultsChannel)
                     })
             else {
                 encoder = encryptedEncoderConstructor(session.state!!)
-                unpacker = MessagePackerUnpacker(it, encoder!!, session.state!!, updatesChannel)
+                unpacker = MessagePackerUnpacker(it, encoder!!, session.state!!, updatesChannel, resultsChannel)
             }
 
-            scope.launch {
-                startRecvLoop()
-            }
+            startRecvLoop()
 
             Napier.d(this(Help_GetNearestDcRequest()).toString()) // First request has to be an unchanged request from the first layer
             serverConfig = this(
@@ -181,14 +187,26 @@ open class TelegramClientCoreImpl(
                 session.setUpdateState(UpdateState(state.seq, state.date, state.qts, mutableMapOf(null to state.pts)))
         }
         updatesHandler = UpdateHandlerImpl(scope, session.updates!!, this)
+        startUpdateLoop()
         scope.launch {
             while (true) {
                 coroutineScope {
                     val update = updatesHandler!!.updates.receive()
-                    println(this@TelegramClientCoreImpl.updateCallbacks)
                     this@TelegramClientCoreImpl.updateCallbacks.forEach {
                         launch { it(update) }
                     }
+                }
+            }
+        }
+        scope.launch {
+            var i = 0
+            while (true) {
+                delay(30000)
+                invoke(PingRequest(Random.nextLong()))
+                session.save()
+                i = (i + 1) % 60
+                if (i == 0) {
+                    updatesHandler?.catchUp()
                 }
             }
         }
@@ -199,7 +217,6 @@ open class TelegramClientCoreImpl(
         scope.launch {
             updatesHandler!!.handleUpdates(update)
         }
-        Unit
     }
 
     protected suspend fun logIn(
@@ -276,11 +293,11 @@ open class TelegramClientCoreImpl(
 
     override suspend fun getMe(): UserObject {
         return (this(Users_GetUsersRequest(listOf(InputUserSelfObject()))).single() as UserObject).also {
-            inputUserSelf = InputPeerUserObject(it.id, it.accessHash!!)
+            inputUserSelf = InputUserObject(it.id, it.accessHash!!)
         }
     }
 
-    override suspend fun getInputMe(): InputPeerUserObject {
+    override suspend fun getInputMe(): InputUserObject {
         if (::inputUserSelf.isInitialized)
             return inputUserSelf
         getMe()
@@ -295,19 +312,22 @@ open class TelegramClientCoreImpl(
 
     override suspend fun catchUp() = updatesHandler!!.catchUp()
 
-    protected suspend fun startRecvLoop() = coroutineScope {
+    protected suspend fun startRecvLoop() {
         val byteChannel = Channel<ByteArray>()
-        launch {
+        scope.launch {
             connection!!.recvLoop(byteChannel)
         }
-        launch {
+        scope.launch {
             unpacker!!.pump(byteChannel)
         }
-        launch {
+    }
+
+    protected suspend fun startUpdateLoop() {
+        scope.launch {
             while (true)
                 try {
                     unpacker!!.updatesChannel.receive().let {
-                        updatesHandler?.getEntities(it)?.let { entities ->
+                        updatesHandler?.getEntities(it, true)?.let { entities ->
                             session.addEntities(entities)
                         }
                         updatesHandler?.handleUpdates(it)
@@ -337,7 +357,11 @@ open class TelegramClientCoreImpl(
         return ret as R
     }
 
-    suspend fun <R : TLObject<*>> sendAndUnpack(request: TLMethod<R>): R {
+    suspend fun <R : TLObject<*>> sendAndUnpack(
+        request: TLMethod<R>,
+        skipEntities: Boolean = false,
+        forUpdate: Boolean = false
+    ): R {
         val ret: R = try {
             sendWrapped(request, encoder!!)
         } catch (e: BadRequestError.FloodWaitError) {
@@ -346,13 +370,20 @@ open class TelegramClientCoreImpl(
             delay(seconds.toLong())
             sendAndUnpack(request)
         }
-        updatesHandler?.getEntities(ret)?.let {
-            session.addEntities(it)
+        Napier.d("Got response $ret", tag = tag)
+        if (!skipEntities) {
+            updatesHandler?.getEntities(ret, forUpdate)?.let {
+                session.addEntities(it)
+            }
         }
         return ret
     }
 
-    override suspend operator fun <N, R : TLObject<N>> invoke(request: TLMethod<R>): N {
-        return sendAndUnpack(request).native
+    override suspend operator fun <N, R : TLObject<N>> invoke(
+        request: TLMethod<R>,
+        skipEntities: Boolean,
+        forUpdate: Boolean
+    ): N {
+        return sendAndUnpack(request, forUpdate).native
     }
 }

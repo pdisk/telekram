@@ -36,7 +36,8 @@ class MessagePackerUnpacker(
     private val connection: Connection,
     private val encoder: EncryptedMTProtoEncoder,
     private val state: MTProtoState,
-    val updatesChannel: Channel<UpdatesType>
+    val updatesChannel: Channel<UpdatesType>,
+    val resultsChannel: Channel<TLObject<*>>
 ) {
     private val pendingMessages: MutableMap<Long, CompletableDeferred<MessageUnpackAction>> = HashMap(5)
 
@@ -72,6 +73,7 @@ class MessagePackerUnpacker(
                 return unpackMessage(message.body, message.msgId)
             else
                 state.updateMsgId(msgId!!)
+            Napier.d("Got message $message")
             when (message) {
                 is ObjectType -> {
                     unpackMessage(handleMaybeGzipped(message), msgId)
@@ -90,9 +92,11 @@ class MessagePackerUnpacker(
                     message.messages.sortedBy { it.seqno }.forEach { unpackMessage(it, msgId) }
                 }
                 is RpcResultObject -> {
+                    val result = handleMaybeGzipped(message.result)
+                    //resultsChannel.send(result)
                     pendingMessages[message.reqMsgId]?.complete(
                         MessageUnpackActionReturn(
-                            handleMaybeGzipped(message.result)
+                            result
                         )
                     )
                 }

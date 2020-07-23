@@ -38,11 +38,12 @@ class LongObject(private val long: Long, override val bare: Boolean) :
     companion object :
         TLConstructor<LongObject> {
         @ExperimentalUnsignedTypes
-        override fun _fromTlRepr(data: IntArray): Pair<Int, LongObject>? {
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, LongObject>? {
             return Pair(
                 2,
                 LongObject(
-                    (data[1].toUInt().toULong().shl(UInt.SIZE_BITS) + data[0].toUInt().toULong()).toLong(),
+                    (data[offset + 1].toUInt().toULong().shl(UInt.SIZE_BITS) + data[offset + 0].toUInt()
+                        .toULong()).toLong(),
                     true
                 )
             )

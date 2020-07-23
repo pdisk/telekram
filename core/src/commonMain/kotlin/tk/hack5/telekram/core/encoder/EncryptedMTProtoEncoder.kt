@@ -80,9 +80,9 @@ open class EncryptedMTProtoEncoder(
             )
         ) { "Invalid msgKey" }
         // TODO implement future salt support so we can verify its a valid salt, and handle it right if its wrong
-        require(
+        /*require(
             decrypted.sliceArray(0 until 8)
-                .contentEquals(state.salt) || state.salt.all { it == 0.toByte() }) { "Invalid salt" }
+                .contentEquals(state.salt) || state.salt.all { it == 0.toByte() }) { "Invalid salt" }*/
         require(decrypted.sliceArray(8 until 16).contentEquals(state.sessionId)) { "Invalid sessionId" }
         // We cannot validate the msgId yet if there's a container because the container contents will be lower
         return decrypted.sliceArray(16 until decrypted.size)

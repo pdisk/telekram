@@ -70,9 +70,9 @@ class MapKtWriter(output: (String) -> Unit, private val data: TLData, packageNam
         } + ")")
         write()
         write("class GenericConstructor<T : TLObject<*>> : TLConstructor<T> {", 1)
-        write("override fun _fromTlRepr(data: IntArray): Pair<Int, T>? {", 1)
+        write("override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, T>? {", 1)
         write("@Suppress(\"UNCHECKED_CAST\")")
-        write("return (CONSTRUCTORS[data[0]] as TLConstructor<T>).fromTlRepr(data, false)")
+        write("return (CONSTRUCTORS[data[offset]] as TLConstructor<T>).fromTlRepr(data, true, offset + 1)")
         writeDeclEnd()
         write()
         write("override val id: Int? = null")
@@ -131,27 +131,27 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
         write("companion object : TLConstructor<VectorObject<*>> {", 1)
         write("// Entirely generic constructor; can return any type of VectorObject without generics-safety")
         write("@ExperimentalUnsignedTypes")
-        write("override fun _fromTlRepr(data: IntArray): Pair<Int, VectorObject<*>>? = fromTlRepr<TLObject<*>>(data, true)")
+        write("override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, VectorObject<*>>? = fromTlRepr<TLObject<*>>(data, true, null, offset)")
         write("// If null is passed as constructor, a boxed type is assumed. Non-null implies bare.")
         write("@ExperimentalUnsignedTypes")
         write(
-            "fun <G : TLObject<*>>fromTlRepr(data: IntArray, bare: Boolean, generic: TLConstructor<G>? = null): Pair<Int, VectorObject<G>>? {",
+            "fun <G : TLObject<*>>fromTlRepr(data: IntArray, bare: Boolean, generic: TLConstructor<G>? = null, offset: Int = 0): Pair<Int, VectorObject<G>>? {",
             1
         )
-        write("if (!bare && data[0] != id) return null")
-        write("var off = if (bare) 0 else 1")
-        write("if (data.size <= off) return Pair(off, VectorObject(listOf(), bare))")
+        write("if (!bare && data[offset] != id) return null")
+        write("var off = if (bare) offset else (offset + 1)")
+        write("if (data.size <= off) return Pair(off - offset, VectorObject(listOf(), bare))")
         write("val size = data[off++]")
         write("val ret = mutableListOf<G>()")
         write("var tmp: Pair<Int, G>")
         write("var count = 0")
         write("while (count++ < size) {", 1)
         write("@Suppress(\"UNCHECKED_CAST\")")
-        write("tmp = (generic ?: TlMappings.CONSTRUCTORS[data[off]] as TLConstructor<G>).fromTlRepr(data.sliceArray(off until data.size), generic != null)!!")
+        write("tmp = (generic ?: TlMappings.CONSTRUCTORS[data[off]] as TLConstructor<G>).fromTlRepr(data, generic != null, off)!!")
         write("off += tmp.first")
         write("ret += tmp.second")
         writeDeclEnd()
-        write("return Pair(off, VectorObject(ret, bare))")
+        write("return Pair(off - offset, VectorObject(ret, bare))")
         writeDeclEnd()
         write()
         write("override val id = ${entry.id}")
@@ -159,7 +159,7 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
         write()
         write("class VectorConstructor<G : TLObject<*>>(val generic: TLConstructor<G>?) : TLConstructor<VectorObject<G>> {", 1)
         write("@ExperimentalUnsignedTypes")
-        write("override fun _fromTlRepr(data: IntArray): Pair<Int, VectorObject<G>>? = fromTlRepr(data, true, generic)")
+        write("override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, VectorObject<G>>? = fromTlRepr(data, true, generic, offset)")
         write()
         write("override val id = VectorObject.id")
         writeDeclEnd()
@@ -357,15 +357,15 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
     private fun writeCompanionStart() = write("companion object : TLConstructor<$tlName$requestExtension> {", 1)
     private fun writeFromTlReprDef() {
         write("@ExperimentalUnsignedTypes")
-        write("override fun _fromTlRepr(data: IntArray): Pair<Int, $tlName$requestExtension>? {", 1)
+        write("override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, $tlName$requestExtension>? {", 1)
     }
     private fun writeFromTlReprBody() {
 
         val consumed = if (entry.params.isNotEmpty()) {
-            write("var dataOffset = 0")
+            write("var dataOffset = offset")
             for (param in entry.params)
                 fixDeserialization(param.name, param.type).forEach { write(it.first, it.second) }
-            "dataOffset"
+            "dataOffset - offset"
         } else "0"
         write("return Pair($consumed, $tlName$requestExtension(" + entry.params.filter { it.type != "#" }.joinToString {
             val nullable = "?" in it.type
@@ -377,7 +377,12 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
     }
 }
 
-class TypeKtWriter(output: (String) -> Unit, typeName: String, packageName: String) : KtWriter(output, packageName, typeName) {
+class TypeKtWriter(
+    output: (String) -> Unit,
+    typeName: String,
+    packageName: String,
+    private val constructors: List<TLConstructor>
+) : KtWriter(output, packageName, typeName) {
     private fun buildSpecial(): Boolean {
         if (tlName == "Object") {
             write("data class ObjectObject(val innerObject: TLObject<*>) : ObjectType() {", 1)
@@ -397,11 +402,11 @@ class TypeKtWriter(output: (String) -> Unit, typeName: String, packageName: Stri
             write("companion object : TLConstructor<ObjectType> {", 1)
             write("override val id: Int? = null")
             write()
-            write("override fun _fromTlRepr(data: IntArray): Pair<Int, ObjectType>? {", 1)
-            write("val innerObject = (TlMappings.CONSTRUCTORS[data.first()]", 1)
-            write("?: error(\"Attempting to deserialize unrecognized datatype\")).fromTlRepr(data)")
+            write("override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, ObjectType>? {", 1)
+            write("val innerObject = (TlMappings.CONSTRUCTORS[data[offset]]", 1)
+            write("?: error(\"Attempting to deserialize unrecognized datatype\")).fromTlRepr(data, true, offset + 1)")
             write("?: error(\"Unable to deserialize data\")", -1)
-            write("return Pair(innerObject.first, innerObject.second as? ObjectType ?: ObjectObject(innerObject.second))")
+            write("return Pair(innerObject.first + 1, innerObject.second as? ObjectType ?: ObjectObject(innerObject.second))")
             writeDeclEnd()
             writeDeclEnd()
             writeDeclEnd()
@@ -432,14 +437,33 @@ class TypeKtWriter(output: (String) -> Unit, typeName: String, packageName: Stri
         writeInterfaceDef()
     }
 
+    @Suppress("unused") // this is a bug. it is used in the jvmMain module
     fun writeImports() {
         if (tlName == "Object")
             write("import tk.hack5.telekram.core.TlMappings")
         write("import tk.hack5.telekram.core.tl.TLObject")
+        write("import tk.hack5.telekram.core.tl.TLTypeConstructor")
+        if (constructors.none { it.type == tlName })
+            write("import tk.hack5.telekram.core.tl.TLConstructor")
         write()
     }
 
-    private fun writeInterfaceDef() = write("sealed class ${tlName}Type : TLObject<${tlName}Type>")
+    private fun writeInterfaceDef() {
+        write("sealed class ${tlName}Type : TLObject<${tlName}Type> {", 1)
+        write("companion object : TLTypeConstructor<${tlName}Type> {", 1)
+        val matching = constructors.filter {
+            it.type == tlName
+        }.joinToString(", ") {
+            "${it.id} to ${fixNamespace(it.name)}Object"
+        }
+        if (matching.isEmpty()) {
+            write("override val constructors = emptyMap<Int, TLConstructor<${tlName}Type>>()")
+        } else {
+            write("override val constructors = mapOf($matching)")
+        }
+        writeDeclEnd()
+        writeDeclEnd()
+    }
 }
 
 class ErrorsWriter(output: (String) -> Unit, packageName: String, private val errors: Collection<Error>) :
@@ -616,7 +640,7 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
                             Pair(
                                 (if (!_internal) "val ${name}_param = " else "") +
                                         "(VectorObject.fromTlRepr<${fixNamespace(formatType(generic))}>" +
-                                        "(data.sliceArray(dataOffset until data.size), $bare) ?: error(\"Unable to deserialize data\"))",
+                                        "(data, $bare, offset = dataOffset) ?: error(\"Unable to deserialize data\"))",
                                 0
                             )
                         )
@@ -624,8 +648,11 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
                         listOf(
                             Pair(
                                 (if (!_internal) "val ${name}_param = " else "") +
-                                        "(VectorObject.fromTlRepr(data.sliceArray(dataOffset until data.size), $bare, " +
-                                        fixType(generic, true) + ") ?: error(\"Unable to deserialize data\"))", 0
+                                        "(VectorObject.fromTlRepr(data, $bare, " +
+                                        fixType(
+                                            generic,
+                                            true
+                                        ) + ", dataOffset) ?: error(\"Unable to deserialize data\"))", 0
                             )
                         )
                     }
@@ -635,7 +662,7 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
             type == "Object" -> listOf(
                 Pair(
                     (if (!_internal) "val ${name}_param = " else "") + "ObjectObject." +
-                            "fromTlRepr(data.sliceArray(dataOffset until data.size)) ?: error(\"Unable to deserialize data\")",
+                            "fromTlRepr(data, offset = dataOffset) ?: error(\"Unable to deserialize data\")",
                     0
                 )
             )
@@ -644,14 +671,14 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
                 Pair(
                     (if (!_internal) "val ${name}_param = " else "") + "((TlMappings.CONSTRUCTORS[data[dataOffset]] " +
                             "?: error(\"Attempting to deserialize unrecognized datatype\"))." +
-                            "fromTlRepr(data.sliceArray(dataOffset until data.size)) ?: error(\"Unable to deserialize data\")) as " +
+                            "fromTlRepr(data, offset = dataOffset) ?: error(\"Unable to deserialize data\")) as " +
                             "Pair<Int, " + fixNamespace(formatType(type)) + ">", 0
                 )
             )
             else -> listOf(
                 Pair(
                     (if (!_internal) "val ${name}_param = " else "") + formatType(type) +
-                            ".fromTlRepr(data.sliceArray(dataOffset until data.size), true) ?: error(\"Unable to deserialize data\")",
+                            ".fromTlRepr(data, true, dataOffset) ?: error(\"Unable to deserialize data\")",
                     0
                 )
             )

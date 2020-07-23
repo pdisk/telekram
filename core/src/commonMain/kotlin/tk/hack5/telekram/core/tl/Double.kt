@@ -36,8 +36,8 @@ class DoubleObject(private val double: Double, override val bare: Boolean) :
     companion object :
         TLConstructor<DoubleObject> {
         @ExperimentalUnsignedTypes
-        override fun _fromTlRepr(data: IntArray): Pair<Int, DoubleObject>? {
-            val ret = LongObject._fromTlRepr(data)
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, DoubleObject>? {
+            val ret = LongObject._fromTlRepr(data, offset)
             return ret?.let {
                 Pair(
                     it.first,

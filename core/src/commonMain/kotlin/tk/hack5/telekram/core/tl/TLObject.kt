@@ -31,6 +31,7 @@ interface TLObject<N> {
 
     fun asTlObject() = this
     val native: N
+
     /*
     Sample implementation:
     @ExperimentalUnsignedTypes
@@ -38,28 +39,44 @@ interface TLObject<N> {
         get() = Companion._id
     If you don't use a getter, it crashes with an obscure ClassCastException. No idea why.
      */
-
     val _id: Int?
 
     val fields: Map<String, TLObject<*>?>
 }
 
 interface TLConstructor<T : TLObject<*>> {
-    fun _fromTlRepr(data: IntArray): Pair<Int, T>?
+    fun _fromTlRepr(data: IntArray, offset: Int = 0): Pair<Int, T>?
+
     @Suppress("EXPERIMENTAL_API_USAGE") // @UseExperimental is experimental itself
-                                                // and the -Xuse-experimental doesn't work properly
-    fun fromTlRepr(data: IntArray, bare: Boolean = false): Pair<Int, T>? {
+    // and the -Xuse-experimental doesn't work properly
+    fun fromTlRepr(data: IntArray, bare: Boolean = false, offset: Int = 0): Pair<Int, T>? {
         // the Int is the count of bytes consumed, for Vectors
         if (!bare && id != null) {
-            if (data[0] != id)
+            if (data[offset] != id)
                 return null
-            return _fromTlRepr(data.sliceArray(1 until data.size))?.let {
-                Pair(it.first + 1, it.second)
+            return _fromTlRepr(data, offset + 1)?.let {
+                it.first + 1 to it.second
             }
-        } else return _fromTlRepr(data)
+        } else return _fromTlRepr(data, offset)
     }
 
     val id: Int?
+}
+
+interface TLTypeConstructor<T : TLObject<*>> : TLConstructor<T> {
+    @Suppress("ImplicitNullableNothingType")
+    override val id
+        get() = null
+
+    val constructors: Map<Int, TLConstructor<out T>>
+
+    override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, T>? {
+        val constructor = constructors[data[offset]]
+            ?: error("Attempting to deserialize unrecognized datatype (data=${data.contentToString()}, offset=$offset)")
+        return constructor.fromTlRepr(data, true, offset + 1)?.let {
+            it.first + 1 to it.second
+        }
+    }
 }
 
 interface TLMethod<R : TLObject<*>> :

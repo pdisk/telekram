@@ -40,6 +40,7 @@ interface EventHandler<E : Event> {
         val defaultHandlers = listOf(
             NewMessage,
             EditMessage,
+            SkippedUpdate,
             RawUpdate
         )
     }
@@ -279,6 +280,12 @@ object EditMessage : EventHandler<EditMessage.EditMessageEvent> {
             )
         }
     }
+}
+
+object SkippedUpdate : EventHandler<SkippedUpdate.SkippedUpdateEvent> {
+    data class SkippedUpdateEvent(val client: TelegramClient, val channelId: Int?) : Event
+
+    override fun constructEvent(client: TelegramClient, channelId: Int?) = SkippedUpdateEvent(client, channelId)
 }
 
 object RawUpdate : EventHandler<RawUpdate.RawUpdateEvent> {

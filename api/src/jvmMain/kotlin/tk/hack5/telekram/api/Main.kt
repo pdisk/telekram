@@ -20,17 +20,16 @@ package tk.hack5.telekram.api
 
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.*
 import kotlinx.coroutines.debug.DebugProbes
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.single
 import tk.hack5.telekram.core.state.JsonSession
 import tk.hack5.telekram.core.state.invoke
 import tk.hack5.telekram.core.tl.*
 import tk.hack5.telekram.core.utils.toInputChannel
+import tk.hack5.telekram.core.utils.toInputPeer
 import java.io.File
-import kotlin.system.measureTimeMillis
+import kotlin.system.measureNanoTime
 
 @ExperimentalCoroutinesApi
 fun main(): Unit = runBlocking {
@@ -64,29 +63,54 @@ fun main(): Unit = runBlocking {
         }
     }*/
     client.eventCallbacks += {
-        println(it)
-        when (it) {
-            is NewMessage.NewMessageEvent -> {
-                if (it.out) {
-                    if (it.message == ".ping") {
-                        var update: UpdatesType? = null
-                        val time = measureTimeMillis {
-                            update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+        try {
+            println(it)
+            when (it) {
+                is NewMessage.NewMessageEvent -> {
+                    if (it.out) {
+                        if (it.message == ".ping") {
+                            var update: UpdatesType? = null
+                            val time = measureNanoTime {
+                                update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+                            }
+                            client.sendUpdate(update!!)
+                            update =
+                                client(
+                                    Messages_EditMessageRequest(
+                                        false,
+                                        it.getInputChat(),
+                                        it.id,
+                                        "Pong\nRTT=${time}ns"
+                                    )
+                                )
+                            client.sendUpdate(update!!)
                         }
-                        client.sendUpdate(update!!)
-                        update =
-                            client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong\nRTT=${time}ms"))
-                        client.sendUpdate(update!!)
+                    }
+                    if (it.toId is PeerChannelObject) {
+                        client(Channels_ReadHistoryRequest(it.toId.toInputChannel(client), it.id))
+                    } else {
+                        client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
                     }
                 }
-                if (it.toId is PeerChannelObject) {
-                    client(Channels_ReadHistoryRequest((it.toId.toInputChannel(client)), it.id))
-                } else {
-                    client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                is SkippedUpdate.SkippedUpdateEvent -> {
+                    it.channelId?.let { channelId ->
+                        client(
+                            Channels_ReadHistoryRequest(
+                                PeerChannelObject(channelId).toInputChannel(client),
+                                client.getMessages(PeerChannelObject(channelId).toInputPeer(client), limit = 1)
+                                    .single().id
+                            )
+                        )
+                    }
+                }
+                is EditMessage.EditMessageEvent -> {
+                }
+                is RawUpdate.RawUpdateEvent -> {
                 }
             }
-            is EditMessage.EditMessageEvent -> println(it)
-            is RawUpdate.RawUpdateEvent -> println(it)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Napier.e("error", e)
         }
     }
     println(client.start(
@@ -103,12 +127,12 @@ fun main(): Unit = runBlocking {
             System.console()?.readPassword() ?: readLine()!!.toCharArray()
         }
     ))
-    println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(1327313835, 0)))))
+    println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(1384256310, 0)))))
     client.catchUp()
     withContext(Dispatchers.IO) {
         readLine()
     }
-    //delay(30000)
+    //delay(1800000)
     //DebugProbes.dumpCoroutines()
     //val dialogs = client.getDialogs()
     //println(dialogs.first())

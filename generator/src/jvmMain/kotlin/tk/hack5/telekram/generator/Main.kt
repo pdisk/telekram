@@ -46,7 +46,7 @@ fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
     }
     for (typeAndObjects in typeToObjects) {
         val tmp = mutableListOf<String>()
-        writer = TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName)
+        writer = TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName, typeAndObjects.value)
         file = File("$outputDir/${writer.tlName}Type.kt")
 /*        if (" " in writer.tlName || "<" in writer.tlName)
             continue*/
@@ -58,11 +58,11 @@ fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
             NormalKtWriter({ tmp += it }, constructor, packageName).writeImports()
         }
         tmp.distinct().forEach { bufferedWriter!!.write(it) }
-        TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName).build()
+        TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName, typeAndObjects.value).build()
         typeAndObjects.value.forEach { constructor ->
             NormalKtWriter({ bufferedWriter!!.write(it) }, constructor, packageName).build()
         }
-        TypeKtWriter({ bufferedWriter!!.write(it) }, typeAndObjects.key, packageName).build()
+        TypeKtWriter({ bufferedWriter!!.write(it) }, typeAndObjects.key, packageName, typeAndObjects.value).build()
 
         bufferedWriter.close()
     }

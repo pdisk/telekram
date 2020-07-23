@@ -34,8 +34,8 @@ class IntObject(private val int: Int, override val bare: Boolean) :
 
     companion object :
         TLConstructor<IntObject> {
-        override fun _fromTlRepr(data: IntArray): Pair<Int, IntObject>? {
-            return data.firstOrNull()?.let {
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, IntObject>? {
+            return data.getOrNull(offset)?.let {
                 Pair(1, IntObject(it, true))
             }
         }
