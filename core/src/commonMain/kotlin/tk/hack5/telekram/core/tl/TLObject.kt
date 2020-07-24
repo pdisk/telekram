@@ -46,9 +46,8 @@ interface TLObject<N> {
 
 interface TLConstructor<T : TLObject<*>> {
     fun _fromTlRepr(data: IntArray, offset: Int = 0): Pair<Int, T>?
-
     @Suppress("EXPERIMENTAL_API_USAGE") // @UseExperimental is experimental itself
-    // and the -Xuse-experimental doesn't work properly
+                                                // and the -Xuse-experimental doesn't work properly
     fun fromTlRepr(data: IntArray, bare: Boolean = false, offset: Int = 0): Pair<Int, T>? {
         // the Int is the count of bytes consumed, for Vectors
         if (!bare && id != null) {
@@ -65,14 +64,12 @@ interface TLConstructor<T : TLObject<*>> {
 
 interface TLTypeConstructor<T : TLObject<*>> : TLConstructor<T> {
     @Suppress("ImplicitNullableNothingType")
-    override val id
-        get() = null
+    override val id get() = null
 
     val constructors: Map<Int, TLConstructor<out T>>
 
     override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, T>? {
-        val constructor = constructors[data[offset]]
-            ?: error("Attempting to deserialize unrecognized datatype (data=${data.contentToString()}, offset=$offset)")
+        val constructor = constructors[data[offset]] ?: error("Attempting to deserialize unrecognized datatype (data=${data.contentToString()}, offset=$offset, constructors=$constructors)")
         return constructor.fromTlRepr(data, true, offset + 1)?.let {
             it.first + 1 to it.second
         }

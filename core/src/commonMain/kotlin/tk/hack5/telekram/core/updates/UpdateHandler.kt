@@ -359,7 +359,6 @@ class MinGetter(
         return false // if we actually found a message, there can't be a nested message, so save time by not iterating
     }
 }
-
 class PtsGetter : TLWalker<Map<Int, Int>>() {
     override val result = mutableMapOf<Int, Int>()
 
@@ -434,13 +433,13 @@ open class UpdateHandlerImpl(
         if (users.isNotEmpty())
             try {
                 client(Users_GetUsersRequest(users), forUpdate = true) // TODO handle slices
-            } catch (e: BadRequestError.MsgIdInvalidError) {
+            } catch(e: BadRequestError.MsgIdInvalidError) {
                 // TODO divide-and-conquer to get the ones that do work
             }
         if (channels.isNotEmpty())
             try {
                 client(Channels_GetChannelsRequest(channels), forUpdate = true) // TODO handle slices
-            } catch (e: BadRequestError.MsgIdInvalidError) {
+            } catch(e: BadRequestError.MsgIdInvalidError) {
                 // TODO divide-and-conquer to get the ones that do work
             }
         return ret
@@ -714,7 +713,7 @@ open class UpdateHandlerImpl(
         val updates = mutableListOf<UpdateType>()
         var tmpState: Updates_StateObject? = null
         act {
-            loop@ while (true) {
+            loop@while (true) {
                 val seqStart = (tmpState?.seq ?: updateState.seq) + 1
                 val difference = client(
                     Updates_GetDifferenceRequest(
@@ -795,10 +794,7 @@ open class UpdateHandlerImpl(
         val pts = updateState.pts[channelId]
         if (pts == null) {
             updateState.pts[channelId] =
-                ((client(
-                    Channels_GetFullChannelRequest(inputChannel),
-                    forUpdate = true
-                ) as Messages_ChatFullObject).fullChat as ChannelFullObject).pts
+                ((client(Channels_GetFullChannelRequest(inputChannel), forUpdate = true) as Messages_ChatFullObject).fullChat as ChannelFullObject).pts
             return true
         }
         val result = client(

@@ -33,10 +33,9 @@ class StringObject(private val string: String, override val bare: Boolean) :
     companion object :
         TLConstructor<StringObject> {
         @ExperimentalUnsignedTypes
-        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, StringObject>? =
-            BytesObject._fromTlRepr(data, offset)?.let {
-                Pair(it.first, it.second.native.asString().asTlObject())
-            }
+        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, StringObject>? = BytesObject._fromTlRepr(data, offset)?.let {
+            Pair(it.first, it.second.native.asString().asTlObject())
+        }
 
         override val id: Int? = null
     }

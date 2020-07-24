@@ -147,7 +147,7 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
         write("var count = 0")
         write("while (count++ < size) {", 1)
         write("@Suppress(\"UNCHECKED_CAST\")")
-        write("tmp = (generic ?: TlMappings.CONSTRUCTORS[data[off]] as TLConstructor<G>).fromTlRepr(data, generic != null, off)!!")
+        write("tmp = (generic ?: TlMappings.CONSTRUCTORS.getValue(data[off])).fromTlRepr(data, generic != null, off) as Pair<Int, G>")
         write("off += tmp.first")
         write("ret += tmp.second")
         writeDeclEnd()
@@ -377,12 +377,7 @@ class NormalKtWriter(output: (String) -> Unit, private val entry: TLEntry, packa
     }
 }
 
-class TypeKtWriter(
-    output: (String) -> Unit,
-    typeName: String,
-    packageName: String,
-    private val constructors: List<TLConstructor>
-) : KtWriter(output, packageName, typeName) {
+class TypeKtWriter(output: (String) -> Unit, typeName: String, packageName: String, private val constructors: List<TLConstructor>) : KtWriter(output, packageName, typeName) {
     private fun buildSpecial(): Boolean {
         if (tlName == "Object") {
             write("data class ObjectObject(val innerObject: TLObject<*>) : ObjectType() {", 1)
@@ -459,7 +454,7 @@ class TypeKtWriter(
         if (matching.isEmpty()) {
             write("override val constructors = emptyMap<Int, TLConstructor<${tlName}Type>>()")
         } else {
-            write("override val constructors = mapOf($matching)")
+            write("override val constructors by lazy { mapOf($matching) }")
         }
         writeDeclEnd()
         writeDeclEnd()
@@ -639,8 +634,8 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
                         listOf(
                             Pair(
                                 (if (!_internal) "val ${name}_param = " else "") +
-                                        "(VectorObject.fromTlRepr<${fixNamespace(formatType(generic))}>" +
-                                        "(data, $bare, offset = dataOffset) ?: error(\"Unable to deserialize data\"))",
+                                        "(VectorObject.fromTlRepr" +
+                                        "(data, $bare, ${fixNamespace(formatType(generic))}, offset = dataOffset) ?: error(\"Unable to deserialize data\"))",
                                 0
                             )
                         )
@@ -649,10 +644,7 @@ private fun fixDeserialization(name: String, type: String, _internal: Boolean = 
                             Pair(
                                 (if (!_internal) "val ${name}_param = " else "") +
                                         "(VectorObject.fromTlRepr(data, $bare, " +
-                                        fixType(
-                                            generic,
-                                            true
-                                        ) + ", dataOffset) ?: error(\"Unable to deserialize data\"))", 0
+                                        fixType(generic, true) + ", dataOffset) ?: error(\"Unable to deserialize data\"))", 0
                             )
                         )
                     }

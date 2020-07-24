@@ -47,6 +47,5 @@ interface ChatGetter {
             ) as Messages_ChatsObject).chats.single() as ChannelObject).toPeer(client)
         }
     }
-
     suspend fun getInputChat(): InputPeerType = chatPeer.toInputPeer(client)
 }

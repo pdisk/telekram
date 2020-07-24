@@ -42,8 +42,7 @@ class LongObject(private val long: Long, override val bare: Boolean) :
             return Pair(
                 2,
                 LongObject(
-                    (data[offset + 1].toUInt().toULong().shl(UInt.SIZE_BITS) + data[offset + 0].toUInt()
-                        .toULong()).toLong(),
+                    (data[offset + 1].toUInt().toULong().shl(UInt.SIZE_BITS) + data[offset + 0].toUInt().toULong()).toLong(),
                     true
                 )
             )

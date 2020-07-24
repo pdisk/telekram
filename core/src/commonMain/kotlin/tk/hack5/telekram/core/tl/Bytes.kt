@@ -49,11 +49,7 @@ class BytesObject(private val bytes: ByteArray, override val bare: Boolean) :
                 arr[offset * Int.SIZE_BYTES].toUByte().toInt()
             } else {
                 off = 4
-                byteArrayOf(
-                    arr[offset * Int.SIZE_BYTES + 1],
-                    arr[offset * Int.SIZE_BYTES + 2],
-                    arr[offset * Int.SIZE_BYTES + 3]
-                ).toInt()
+                byteArrayOf(arr[offset * Int.SIZE_BYTES + 1], arr[offset * Int.SIZE_BYTES + 2], arr[offset * Int.SIZE_BYTES + 3]).toInt()
             }
             val ret = arr.sliceArray(off + offset * Int.SIZE_BYTES until off + offset * Int.SIZE_BYTES + len)
             return Pair(

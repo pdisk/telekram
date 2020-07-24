@@ -42,8 +42,7 @@ suspend fun TelegramClient.getMessages(
         }
         addOffset -= MAX_CHUNK_SIZE
     }
-    val request =
-        Messages_GetHistoryRequest(peer, offsetId, offsetDate, addOffset, remainingCount ?: MAX_CHUNK_SIZE, 0, 0, 0)
+    val request = Messages_GetHistoryRequest(peer, offsetId, offsetDate, addOffset, remainingCount ?: MAX_CHUNK_SIZE, 0, 0, 0)
     var messagesList = when (val messages = this(request)) {
         is Messages_MessagesObject -> messages.messages
         is Messages_MessagesSliceObject -> {

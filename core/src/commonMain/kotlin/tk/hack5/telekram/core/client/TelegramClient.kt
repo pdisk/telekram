@@ -59,12 +59,7 @@ abstract class TelegramClient {
         encoder: MTProtoEncoderWrapped
     ): R
 
-    abstract suspend operator fun <N, R : TLObject<N>> invoke(
-        request: TLMethod<R>,
-        skipEntities: Boolean = false,
-        forUpdate: Boolean = false
-    ): N
-
+    abstract suspend operator fun <N, R : TLObject<N>> invoke(request: TLMethod<R>, skipEntities: Boolean = false, forUpdate: Boolean = false): N
     abstract suspend fun start(
         phoneNumber: () -> String,
         signUpConsent: (Help_TermsOfServiceObject?) -> Pair<String, String>? = { null },
@@ -357,11 +352,7 @@ open class TelegramClientCoreImpl(
         return ret as R
     }
 
-    suspend fun <R : TLObject<*>> sendAndUnpack(
-        request: TLMethod<R>,
-        skipEntities: Boolean = false,
-        forUpdate: Boolean = false
-    ): R {
+    suspend fun <R : TLObject<*>> sendAndUnpack(request: TLMethod<R>, skipEntities: Boolean = false, forUpdate: Boolean = false): R {
         val ret: R = try {
             sendWrapped(request, encoder!!)
         } catch (e: BadRequestError.FloodWaitError) {
@@ -379,11 +370,7 @@ open class TelegramClientCoreImpl(
         return ret
     }
 
-    override suspend operator fun <N, R : TLObject<N>> invoke(
-        request: TLMethod<R>,
-        skipEntities: Boolean,
-        forUpdate: Boolean
-    ): N {
+    override suspend operator fun <N, R : TLObject<N>> invoke(request: TLMethod<R>, skipEntities: Boolean, forUpdate: Boolean): N {
         return sendAndUnpack(request, forUpdate).native
     }
 }

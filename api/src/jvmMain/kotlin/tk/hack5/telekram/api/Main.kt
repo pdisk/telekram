@@ -23,6 +23,7 @@ import com.github.aakira.napier.Napier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.debug.DebugProbes
 import kotlinx.coroutines.flow.single
+import tk.hack5.telekram.core.mtproto.PingRequest
 import tk.hack5.telekram.core.state.JsonSession
 import tk.hack5.telekram.core.state.invoke
 import tk.hack5.telekram.core.tl.*
@@ -30,6 +31,7 @@ import tk.hack5.telekram.core.utils.toInputChannel
 import tk.hack5.telekram.core.utils.toInputPeer
 import java.io.File
 import kotlin.system.measureNanoTime
+import kotlin.system.measureTimeMillis
 
 @ExperimentalCoroutinesApi
 fun main(): Unit = runBlocking {
@@ -71,16 +73,18 @@ fun main(): Unit = runBlocking {
                         if (it.message == ".ping") {
                             var update: UpdatesType? = null
                             val time = measureNanoTime {
-                                update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+                                //update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+                                for (i in 0 until 100)
+                                    client(PingRequest(i.toLong()))
                             }
-                            client.sendUpdate(update!!)
+                            //client.sendUpdate(update!!)
                             update =
                                 client(
                                     Messages_EditMessageRequest(
                                         false,
                                         it.getInputChat(),
                                         it.id,
-                                        "Pong\nRTT=${time}ns"
+                                        "Pong\nRTT=${time}ms"
                                     )
                                 )
                             client.sendUpdate(update!!)
