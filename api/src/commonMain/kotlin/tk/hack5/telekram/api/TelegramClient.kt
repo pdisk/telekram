@@ -21,16 +21,16 @@ package tk.hack5.telekram.api
 import com.github.aakira.napier.Napier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
+import tk.hack5.telekram.core.client.TelegramClient
 import tk.hack5.telekram.core.client.TelegramClientCoreImpl
 import tk.hack5.telekram.core.connection.Connection
 import tk.hack5.telekram.core.connection.TcpFullConnection
 import tk.hack5.telekram.core.encoder.EncryptedMTProtoEncoder
 import tk.hack5.telekram.core.encoder.MTProtoEncoder
 import tk.hack5.telekram.core.encoder.PlaintextMTProtoEncoder
-import tk.hack5.telekram.core.state.MTProtoState
-import tk.hack5.telekram.core.state.MTProtoStateImpl
-import tk.hack5.telekram.core.state.MemorySession
-import tk.hack5.telekram.core.state.Session
+import tk.hack5.telekram.core.state.*
+import tk.hack5.telekram.core.updates.UpdateHandler
+import tk.hack5.telekram.core.updates.UpdateHandlerImpl
 import tk.hack5.telekram.core.updates.UpdateOrSkipped
 
 open class TelegramClientApiImpl(
@@ -43,6 +43,7 @@ open class TelegramClientApiImpl(
         }
     },
     encryptedEncoderConstructor: (MTProtoState) -> EncryptedMTProtoEncoder = { EncryptedMTProtoEncoder(it) },
+    updateHandlerConstructor: (CoroutineScope, UpdateState, TelegramClient) -> UpdateHandler? = { scope, state, client -> UpdateHandlerImpl(scope, state, client) },
     deviceModel: String = "ktg",
     systemVersion: String = "0.0.1",
     appVersion: String = "0.0.1",
@@ -57,6 +58,7 @@ open class TelegramClientApiImpl(
     connectionConstructor,
     plaintextEncoderConstructor,
     encryptedEncoderConstructor,
+    updateHandlerConstructor,
     deviceModel,
     systemVersion,
     appVersion,

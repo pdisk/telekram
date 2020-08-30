@@ -22,11 +22,14 @@ import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.debug.DebugProbes
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.single
 import tk.hack5.telekram.core.mtproto.PingRequest
 import tk.hack5.telekram.core.state.JsonSession
 import tk.hack5.telekram.core.state.invoke
 import tk.hack5.telekram.core.tl.*
+import tk.hack5.telekram.core.updates.Update
 import tk.hack5.telekram.core.utils.toInputChannel
 import tk.hack5.telekram.core.utils.toInputPeer
 import java.io.File
@@ -43,7 +46,7 @@ fun main(): Unit = runBlocking {
         TelegramClientApiImpl(
             apiId,
             apiHash,
-            session = JsonSession(File("telekram.json")),
+            session = JsonSession(File("telekram.json")) /*.setDc(2, "149.154.167.40", 443)*/,
             maxFloodWait = 15,
             parentScope = this
         )
@@ -73,38 +76,52 @@ fun main(): Unit = runBlocking {
                         if (it.message == ".ping") {
                             var update: UpdatesType? = null
                             val time = measureNanoTime {
-                                //update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
-                                for (i in 0 until 100)
-                                    client(PingRequest(i.toLong()))
+                                update = client(Messages_EditMessageRequest(false, it.getInputChat(), it.id, "Pong"))
+                                /*for (i in 0 until 100)
+                                    client(PingRequest(i.toLong()))*/
                             }
-                            //client.sendUpdate(update!!)
+                            println(update)
+                            val dispatchTime = measureNanoTime {
+                                client.sendUpdate(update!!)
+                            }
                             update =
                                 client(
                                     Messages_EditMessageRequest(
                                         false,
                                         it.getInputChat(),
                                         it.id,
-                                        "Pong\nRTT=${time}ms"
+                                        "Pong\nRTT=${time}ns\nDispatch=${dispatchTime}ns"
                                     )
                                 )
                             client.sendUpdate(update!!)
                         }
                     }
+
                     if (it.toId is PeerChannelObject) {
                         client(Channels_ReadHistoryRequest(it.toId.toInputChannel(client), it.id))
                     } else {
                         client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
                     }
+
                 }
                 is SkippedUpdate.SkippedUpdateEvent -> {
-                    it.channelId?.let { channelId ->
+                    if (it.channelId != null) {
                         client(
                             Channels_ReadHistoryRequest(
-                                PeerChannelObject(channelId).toInputChannel(client),
-                                client.getMessages(PeerChannelObject(channelId).toInputPeer(client), limit = 1)
+                                PeerChannelObject(it.channelId).toInputChannel(client),
+                                client.getMessages(PeerChannelObject(it.channelId).toInputPeer(client), limit = 1)
                                     .single().id
                             )
                         )
+                    } else {
+                        client.getDialogs().flatMapMerge {
+                            when (it) {
+                                is DialogChat -> TODO()
+                                is DialogFolder -> {
+                                    client.getDialogs(folderId = it.folder.id)
+                                }
+                            }
+                        }
                     }
                 }
                 is EditMessage.EditMessageEvent -> {
@@ -131,7 +148,6 @@ fun main(): Unit = runBlocking {
             System.console()?.readPassword() ?: readLine()!!.toCharArray()
         }
     ))
-    println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(1384256310, 0)))))
     client.catchUp()
     withContext(Dispatchers.IO) {
         readLine()

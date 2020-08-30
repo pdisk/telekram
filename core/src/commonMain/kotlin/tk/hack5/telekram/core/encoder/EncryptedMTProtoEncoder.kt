@@ -18,7 +18,6 @@
 
 package tk.hack5.telekram.core.encoder
 
-import com.github.aakira.napier.Napier
 import com.soywiz.krypto.sha256
 import tk.hack5.telekram.core.crypto.AES
 import tk.hack5.telekram.core.crypto.AESMode
@@ -68,6 +67,15 @@ open class EncryptedMTProtoEncoder(
     }
 
     override suspend fun decode(data: ByteArray): ByteArray {
+        data.singleOrNull()?.let {
+            // A server error occurred, the error is given as a HTTP status code
+            if (it.toInt() == -404) {
+                // auth key unknown, regenerate it
+                // TODO regen auth key and resend request (reauthenticating if needed, or doing cdn stuff)
+            } else {
+                error("Unknown server error $it")
+            }
+        }
         require(data.size >= 8) { "Data too small" }
         require(data.sliceArray(0 until 8).contentEquals(authKeyId)) { "Invalid authKeyId" }
         val msgKey = data.sliceArray(8 until 24)
@@ -89,9 +97,6 @@ open class EncryptedMTProtoEncoder(
     }
 
     override suspend fun decodeMessage(data: ByteArray): MessageObject {
-        Napier.d("Decoding incoming message from network...")
-        val ret = MessageObject.fromTlRepr(decode(data).toIntArray(), bare = true)!!.second
-        Napier.d("Decoded message")
-        return ret
+        return MessageObject.fromTlRepr(decode(data).toIntArray(), bare = true)!!.second
     }
 }

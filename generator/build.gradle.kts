@@ -16,11 +16,11 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-val serializationVersion = "0.20.0"
+val serializationVersion = "1.0.0-RC"
 
 plugins {
     kotlin("multiplatform")
-    kotlin("plugin.serialization") version "1.3.72"
+    kotlin("plugin.serialization") version "1.4.0"
     application
 }
 
@@ -36,7 +36,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation(kotlin("stdlib-common"))
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-runtime-common:$serializationVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$serializationVersion")
             }
         }
         val commonTest by getting {
@@ -48,7 +48,7 @@ kotlin {
         jvm().compilations["main"].defaultSourceSet {
             dependencies {
                 implementation(kotlin("stdlib-jdk8"))
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-runtime:$serializationVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$serializationVersion")
             }
             dependsOn(commonMain)
         }
@@ -64,7 +64,7 @@ tasks {
     }
     getByName<org.gradle.jvm.tasks.Jar>("jar") {
         manifest {
-            attributes["Main-Class"] = "cz.sazel.hellokotlin.MainKt"
+            attributes["Main-Class"] = "tk.hack5.telekram.generator.MainKt"
         }
     }
     getByName<JavaExec>("run") {

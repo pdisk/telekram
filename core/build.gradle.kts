@@ -18,7 +18,7 @@
 
 plugins {
     kotlin("multiplatform")
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.3.72"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.4.0"
     id("org.jetbrains.dokka") version "0.10.0"
     `maven-publish`
 }
@@ -32,15 +32,15 @@ repositories {
     maven(url = "https://jitpack.io")
 }
 
-val coroutinesVersion = "1.3.3"
-val napierVersion = "1.1.0"
-val ktorVersion = "1.2.6"
+val coroutinesVersion = "1.3.9"
+val napierVersion = "1.4.0"
+val ktorVersion = "1.4.0"
 val kotlinxIoVersion = "0.1.16"
 val ktMathVersion = "0.0.6"
-val serializationVersion = "0.20.0"
-val klockVersion = "1.7.3"
-val kryptoVersion = "1.9.1"
-val bouncyCastleVersion = "1.64"
+val serializationVersion = "1.0.0-RC"
+val klockVersion = "1.12.0"
+val kryptoVersion = "1.11.2"
+val bouncyCastleVersion = "1.66"
 
 kotlin {
     jvm()
@@ -50,12 +50,12 @@ kotlin {
             kotlin.srcDir("generated/commonMain")
             dependencies {
                 implementation(kotlin("stdlib-common"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutinesVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
                 implementation("io.github.gciatto:kt-math-metadata:$ktMathVersion")
                 implementation("com.soywiz.korlibs.krypto:krypto:$kryptoVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-io:$kotlinxIoVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-runtime-common:$serializationVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$serializationVersion")
                 implementation("com.soywiz.korlibs.klock:klock:$klockVersion")
             }
         }
@@ -74,7 +74,7 @@ kotlin {
                 implementation("io.github.gciatto:kt-math-jvm:$ktMathVersion")
                 implementation("com.soywiz.korlibs.krypto:krypto-jvm:$kryptoVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-io-jvm:$kotlinxIoVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-runtime:$serializationVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$serializationVersion")
                 implementation("com.soywiz.korlibs.klock:klock-jvm:$klockVersion")
                 implementation("org.bouncycastle:bcprov-jdk15on:$bouncyCastleVersion")
                 implementation("org.bouncycastle:bcpkix-jdk15on:$bouncyCastleVersion")
@@ -104,7 +104,7 @@ tasks.dokka {
 val dokkaJar by tasks.creating(Jar::class) {
     group = JavaBasePlugin.DOCUMENTATION_GROUP
     description = "Assembles Kotlin docs with Dokka"
-    classifier = "javadoc"
+    archiveClassifier.set("javadoc")
     from(tasks.dokka)
 }
 

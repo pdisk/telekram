@@ -58,16 +58,16 @@ open class PasswordAuthenticator(protected val pbkdf2sha512: (ByteArray, ByteArr
         val gA = gBigInt.modPow(a, pBigInt)!!
         val gAByteArray = gA.toByteArray().pad(256)
         val gB = serverParams.srpB!!.pad(256)
-        val gBBigInt = BigInteger(gB)
+        val gBBigInt = BigInteger(byteArrayOf(0) + gB)
 
         val k = (p + gByteArray).sha256()
         val kBigInt = BigInteger(byteArrayOf(0) + k)
 
         val u = (gAByteArray + gB).sha256()
-        val uBigInt = BigInteger(u)
+        val uBigInt = BigInteger(byteArrayOf(0) + u)
 
         val x = secondaryPasswordHash(passwordBytes, salt1, salt2)
-        val xBigInt = BigInteger(x)
+        val xBigInt = BigInteger(byteArrayOf(0) + x)
         val v = gBigInt.modPow(xBigInt, pBigInt)!!
 
         val kV = (kBigInt * v).modPow(BigInteger.ONE, pBigInt)!!

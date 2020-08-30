@@ -32,8 +32,8 @@ repositories {
     maven(url = "https://jitpack.io")
 }
 
-val coroutinesVersion = "1.3.3"
-val napierVersion = "1.1.0"
+val coroutinesVersion = "1.3.9"
+val napierVersion = "1.4.0"
 
 kotlin {
     jvm()
@@ -43,7 +43,7 @@ kotlin {
             kotlin.srcDir("generated/commonMain")
             dependencies {
                 implementation(kotlin("stdlib-common"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-common:$coroutinesVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
                 implementation("com.github.aakira:napier-jvm:$napierVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
@@ -67,7 +67,7 @@ kotlin {
         jvm().compilations["test"].defaultSourceSet {
             dependencies {
                 implementation(kotlin("test-junit"))
-                implementation("org.junit.jupiter:junit-jupiter:5.5.2")
+                //implementation("org.junit.jupiter:junit-jupiter:5.+")
             }
             dependsOn(commonTest)
         }
