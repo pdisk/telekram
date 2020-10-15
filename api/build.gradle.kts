@@ -22,7 +22,7 @@ plugins {
     `maven-publish`
 }
 
-group = "tk.hack5.telekram"
+group = "dev.hack5.telekram"
 version = "0.0.1-SNAPSHOT"
 
 repositories {
@@ -32,7 +32,7 @@ repositories {
     maven(url = "https://jitpack.io")
 }
 
-val coroutinesVersion = "1.3.9"
+val coroutinesVersion = "1.4.0-M1"
 val napierVersion = "1.4.0"
 
 kotlin {
@@ -42,34 +42,24 @@ kotlin {
         val commonMain by getting {
             kotlin.srcDir("generated/commonMain")
             dependencies {
-                implementation(kotlin("stdlib-common"))
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
-                implementation("com.github.aakira:napier-jvm:$napierVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
                 implementation(project(":core"))
             }
         }
         val commonTest by getting {
             dependencies {
-                implementation(kotlin("test-common"))
-                implementation(kotlin("test-annotations-common"))
             }
         }
         jvm().compilations["main"].defaultSourceSet {
             dependencies {
-                implementation(kotlin("stdlib-jdk8"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation(project(":core"))
             }
-            dependsOn(commonMain)
         }
         jvm().compilations["test"].defaultSourceSet {
             dependencies {
-                implementation(kotlin("test-junit"))
-                //implementation("org.junit.jupiter:junit-jupiter:5.+")
             }
-            dependsOn(commonTest)
         }
     }
 }

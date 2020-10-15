@@ -29,7 +29,7 @@ kotlin {
     jvm()
 }
 
-group = "tk.hack5.telekram"
+group = "dev.hack5.telekram"
 version = "0.0.1-SNAPSHOT"
 
 repositories {
