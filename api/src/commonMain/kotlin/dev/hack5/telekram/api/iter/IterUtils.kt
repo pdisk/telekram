@@ -22,14 +22,14 @@ import com.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.flow
 
 suspend inline fun <R, O> iter(crossinline function: suspend (O?) -> Pair<Collection<R>, O?>) = flow {
-    var lastOutput: Pair<Collection<R>, O?>? = null
-    while (lastOutput?.second != null || lastOutput == null) {
-        lastOutput = function(lastOutput?.second)
-        if (lastOutput.first.isEmpty())
+    var lastOutput = function(null)
+    while (lastOutput.second != null) {
+        if (lastOutput.first.isEmpty() && lastOutput.second != null)
             Napier.w("iter function returned empty collection", tag = "IterTools")
         else
             lastOutput.first.forEach { emit(it) }
         if (lastOutput.second == null) break
+        lastOutput = function(lastOutput.second)
     }
 }
 

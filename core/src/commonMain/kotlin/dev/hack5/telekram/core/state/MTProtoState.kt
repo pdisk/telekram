@@ -62,17 +62,18 @@ data class MTProtoStateImpl(override val authKey: AuthKey? = null) : MTProtoStat
     @Transient
     override var timeOffset = 0L
 
-    @Transient
-    override var salt = 0L.asTlObject().toTlRepr().toByteArray()
+    override var salt = byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0)
 
     @Transient
-    override val sessionId = Random.nextLong().asTlObject().toTlRepr().toByteArray()
+    override val sessionId = Random.nextBytes(8)
 
     @Transient
     override var seq = 0
 
     @Transient
     override var remoteContentRelatedSeq = -1
+
+    @Transient
     override var lastMsgId = 0L
 
     override var scope: CoroutineScope
@@ -94,7 +95,7 @@ data class MTProtoStateImpl(override val authKey: AuthKey? = null) : MTProtoStat
         val secs = secsSinceEpoch + timeOffset
         var newMsgId = secs.shl(32).or(nanoseconds.toLong().shl(2))
         act {
-            while (newMsgId <= lastMsgId)
+            if (newMsgId <= lastMsgId)
                 newMsgId = lastMsgId + 4
             lastMsgId = newMsgId
         }

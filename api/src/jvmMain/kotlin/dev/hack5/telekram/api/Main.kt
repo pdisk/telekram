@@ -20,13 +20,17 @@ package dev.hack5.telekram.api
 
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
+import dev.hack5.telekram.core.exports.exportDC
+import dev.hack5.telekram.core.mtproto.PingRequest
 import dev.hack5.telekram.core.state.JsonSession
 import dev.hack5.telekram.core.state.invoke
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.toInputChannel
 import dev.hack5.telekram.core.utils.toInputPeer
+import dev.hack5.telekram.core.utils.toInputUser
 import kotlinx.coroutines.*
 import kotlinx.coroutines.debug.DebugProbes
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.single
 import java.io.File
@@ -43,6 +47,9 @@ fun main(): Unit = runBlocking {
         TelegramClientApiImpl(
             apiId,
             apiHash,
+            deviceModel = "Linux",
+            systemVersion = "5.8.15-201.fc32.x86_64",
+            appVersion = "1.16.0",
             session = JsonSession(File("telekram.json")).setDc(2, "149.154.167.40", 443),
             maxFloodWait = 15000,
             parentScope = this
@@ -76,11 +83,13 @@ fun main(): Unit = runBlocking {
                             if (it.message == ".ping") {
                                 var update: UpdatesType? = null
                                 val chat = it.getInputChat()
-                                val time = measureNanoTime {
+                                val editTime = measureNanoTime {
                                     update =
                                         client(Messages_EditMessageRequest(false, chat, it.id, "Pong"))
-                                    /*for (i in 0 until 100)
-                                    client(PingRequest(i.toLong()))*/
+                                }
+                                val pingTime = measureNanoTime {
+                                    for (i in 0L until 100L)
+                                        client(PingRequest(i))
                                 }
                                 println(update)
                                 val job = CompletableDeferred<EditMessage.EditMessageEvent>()
@@ -96,10 +105,20 @@ fun main(): Unit = runBlocking {
                                             false,
                                             it.getInputChat(),
                                             it.id,
-                                            "Pong\nRTT=${time}ns\nSRTT=${serverTime}s\nDispatch=${dispatchTime}ns"
+                                            "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}"
                                         )
                                     )
                                 client.sendUpdate(update!!)
+                            }
+                            if (it.message == ".download") {
+                                when (val resp = client(Contacts_ResolveUsernameRequest("blank_x"))) {
+                                    is Contacts_ResolvedPeerObject -> {
+                                        val file = File("test.jpg")
+                                        (resp.users[0] as UserObject).downloadProfilePhoto(client).collect {
+                                            file.writeBytes(it)
+                                        }
+                                    }
+                                }
                             }
                         }
 

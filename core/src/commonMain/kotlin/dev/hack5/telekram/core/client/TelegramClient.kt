@@ -76,7 +76,7 @@ abstract class TelegramClient {
 
     abstract val serverConfig: StateFlow<ConfigObject?>
 
-    abstract suspend fun exportSession(newSession: Session<*>): TelegramClient
+    abstract suspend fun exportSession(newSession: Session<*>, untrusted: Boolean): TelegramClientCoreImpl
 }
 
 open class TelegramClientCoreImpl(
@@ -148,7 +148,6 @@ open class TelegramClientCoreImpl(
 
             startRecvLoop()
 
-            Napier.d(this(Help_GetNearestDcRequest()).toString()) // First request has to be an unchanged request from the first layer
             mutableServerConfig.value = this(
                 InvokeWithLayerRequest(
                     113,
@@ -166,7 +165,7 @@ open class TelegramClientCoreImpl(
                     )
                 )
             ) as ConfigObject
-            Napier.d(serverConfig.toString())
+            Napier.d(serverConfig.value.toString())
         }
     }
 
@@ -185,8 +184,8 @@ open class TelegramClientCoreImpl(
         password: () -> CharArray
     ): Pair<Boolean?, UserType> {
         val (loggedIn, ret) = logIn(phoneNumber, signUpConsent, phoneCode, password)
-        val state = (this(Updates_GetStateRequest()) as Updates_StateObject)
         updatesHandler = if (session.updates == null) {
+            val state = (this(Updates_GetStateRequest()) as Updates_StateObject)
             session =
                 session.setUpdateState(UpdateState(state.seq, state.date, state.qts, mutableMapOf(null to state.pts)))
             session.updates?.let {
@@ -354,8 +353,23 @@ open class TelegramClientCoreImpl(
         }
     }
 
-    override suspend fun exportSession(newSession: Session<*>): TelegramClientCoreImpl {
-        val new = TelegramClientCoreImpl(apiId, apiHash, parentScope, connectionConstructor, plaintextEncoderConstructor, encryptedEncoderConstructor, { _, _, _ -> null }, "", "", "", "", "", "", newSession, maxFloodWait)
+    override suspend fun exportSession(newSession: Session<*>, untrusted: Boolean): TelegramClientCoreImpl {
+        val new = TelegramClientCoreImpl(
+            apiId,
+            apiHash,
+            parentScope,
+            connectionConstructor,
+            plaintextEncoderConstructor,
+            encryptedEncoderConstructor,
+            { _, _, _ -> null },
+            if (untrusted) "" else deviceModel,
+            if (untrusted) "" else systemVersion,
+            if (untrusted) "" else appVersion,
+            if (untrusted) "" else systemLangCode,
+            if (untrusted) "" else langPack,
+            if (untrusted) "" else langCode,
+            newSession,
+            maxFloodWait)
         new.connect()
         return new
     }

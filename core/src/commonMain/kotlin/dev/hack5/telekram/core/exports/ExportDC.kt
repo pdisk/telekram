@@ -26,24 +26,36 @@ import dev.hack5.telekram.core.state.MTProtoStateImpl
 import dev.hack5.telekram.core.state.MemorySession
 import dev.hack5.telekram.core.tl.Auth_ExportAuthorizationRequest
 import dev.hack5.telekram.core.tl.Auth_ExportedAuthorizationObject
+import dev.hack5.telekram.core.tl.Auth_ImportAuthorizationRequest
 import dev.hack5.telekram.core.tl.DcOptionObject
 import org.gciatto.kt.math.BigInteger
 
-suspend fun TelegramClient.exportDC(dc: Int, cdn: Boolean, mediaOnly: Boolean): TelegramClient {
-    val session = getExportSession(dc, cdn, mediaOnly) ?: return this
-    val client = exportSession(session)
+suspend inline fun TelegramClient.exportDC(dc: Int, cdn: Boolean?, mediaOnly: Boolean?, crossinline block: suspend (TelegramClient) -> Unit) {
+    val client = exportDC(dc, cdn, mediaOnly)
+    try {
+        block(client)
+    } finally {
+        client.disconnect()
+    }
+}
+
+suspend fun TelegramClient.exportDC(dc: Int, cdn: Boolean?, mediaOnly: Boolean?): TelegramClient {
+    val (session, auth, untrusted) = getExportSession(dc, cdn, mediaOnly) ?: return this
+    val client = exportSession(session, untrusted)
+    client(Auth_ImportAuthorizationRequest(auth.id, auth.bytes))
     client.connect()
     return client
 }
 
-suspend fun TelegramClient.getExportSession(dc: Int, cdn: Boolean, mediaOnly: Boolean): MemorySession? {
+suspend fun TelegramClient.getExportSession(dc: Int, cdn: Boolean?, mediaOnly: Boolean?): Triple<MemorySession, Auth_ExportedAuthorizationObject, Boolean>? {
     if (dc == serverConfig.value?.thisDc) return null
     val options = serverConfig.value!!.dcOptions.filterIsInstance<DcOptionObject>().filter {
-        it.id == dc && it.cdn == cdn && it.mediaOnly == mediaOnly
+        it.id == dc && (cdn == null || it.cdn == cdn) && (mediaOnly == null || it.mediaOnly == mediaOnly)
                 && !it.tcpoOnly // TODO support tcpo
     }
     require(options.isNotEmpty()) { "Unable to get DC options for $dc (cdn=$cdn, mediaOnly=$mediaOnly, all=${serverConfig.value!!.dcOptions})" }
     val auth = this(Auth_ExportAuthorizationRequest(dc)) as Auth_ExportedAuthorizationObject
     val option = options.random()
-    return MemorySession(dc, option.ipAddress, option.port, MTProtoStateImpl(AuthKey(BigInteger(auth.bytes))))
+    println("connecting to $option with $auth")
+    return Triple(MemorySession(dc, option.ipAddress, option.port, MTProtoStateImpl()), auth, option.cdn)
 }

@@ -24,17 +24,18 @@ import dev.hack5.telekram.core.tl.LongObject
 import dev.hack5.telekram.core.tl.toIntArray
 import dev.hack5.telekram.core.utils.pad
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import org.gciatto.kt.math.BigInteger
 
 @Serializable
 data class AuthKey(@Serializable(with = BigIntegerSerializer::class) private val data: BigInteger) {
     val key = data.toByteArray().pad(256)
-    val auxHash: Long
-    val keyId: ByteArray
 
-    init {
-        val hash = key.sha1().bytes
-        auxHash = LongObject.fromTlRepr(hash.toIntArray())!!.second.native // 64 high order bits
-        keyId = hash.sliceArray(12 until 20) // 64 low order bits
-    }
+    @Transient
+    private val hash = key.sha1().bytes
+
+    @Transient
+    val auxHash = LongObject.fromTlRepr(hash.toIntArray())!!.second.native // 64 high order bits
+    @Transient
+    val keyId = hash.sliceArray(12 until 20) // 64 low order bits
 }

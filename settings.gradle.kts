@@ -17,7 +17,6 @@
  */
 
 rootProject.name = "telekram"
-enableFeaturePreview("GRADLE_METADATA")
 include("generator")
 include("core")
 include("api")

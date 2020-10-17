@@ -25,7 +25,7 @@ import dev.hack5.telekram.core.crypto.AESPlatformImpl
 import dev.hack5.telekram.core.mtproto.MessageObject
 import dev.hack5.telekram.core.mtproto.ObjectObject
 import dev.hack5.telekram.core.state.MTProtoState
-import dev.hack5.telekram.core.tl.TLObject
+import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.tl.toByteArray
 import dev.hack5.telekram.core.tl.toIntArray
 import kotlin.random.Random
@@ -49,7 +49,7 @@ open class EncryptedMTProtoEncoder(
     override suspend fun encode(data: ByteArray): ByteArray {
         val internalHeader =
             state.salt + state.sessionId
-        val paddingLength = (-internalHeader.size - data.size - 12) % 16 + 12
+        val paddingLength = -(internalHeader.size + data.size + 12) % 16 + 28
         val fullData = internalHeader + data + Random.nextBytes(paddingLength)
         val msgKey = (state.authKey!!.key.sliceArray(88 until 120) + fullData).sha256().bytes.sliceArray(8 until 24)
         val aesKey = calcKey(msgKey, true)
@@ -67,16 +67,20 @@ open class EncryptedMTProtoEncoder(
     }
 
     override suspend fun decode(data: ByteArray): ByteArray {
-        data.singleOrNull()?.let {
-            // A server error occurred, the error is given as a HTTP status code
-            if (it.toInt() == -404) {
-                // auth key unknown, regenerate it
-                // TODO regen auth key and resend request (reauthenticating if needed, or doing cdn stuff)
-            } else {
-                error("Unknown server error $it")
+        if (data.size == 4) {
+            when (val error = data.toInt()) {
+                // A server error occurred, the error is given as a HTTP status code
+                -404 -> {
+                    // auth key unknown, regenerate it
+                    // TODO regen auth key and resend request (reauthenticating if needed, or doing cdn stuff)
+                    error("Auth key regeneration not implemented")
+                }
+                else -> {
+                    error("Unknown server error $error")
+                }
             }
         }
-        require(data.size >= 8) { "Data too small" }
+        require(data.size >= 8) { "Data ${data.contentToString()} too small" }
         require(data.sliceArray(0 until 8).contentEquals(authKeyId)) { "Invalid authKeyId" }
         val msgKey = data.sliceArray(8 until 24)
         val aesKey = calcKey(msgKey, false)

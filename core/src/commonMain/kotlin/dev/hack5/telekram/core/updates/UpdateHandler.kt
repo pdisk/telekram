@@ -122,7 +122,7 @@ open class UpdateHandlerImpl(
         updates: UpdatesType,
         skipChecks: Boolean = false,
         skipDispatch: Boolean = false,
-        firstPts: Int? = null
+        endPts: Int? = null
     ) {
         Napier.d({ "got updates $updates" })
         var refetch: Int? = null
@@ -216,7 +216,7 @@ open class UpdateHandlerImpl(
             }
         }
         val (hasPts, hasNoPts) = innerUpdates.partition { it.pts != null }
-        var lastPts: Int? = null
+        val totalUpdated = endPts?.let { BatchUpdateState(hasPts.size, it) }
         for (update in hasPts) {
             val pts = update.pts!!
             val ptsCount = update.ptsCount
@@ -269,14 +269,13 @@ open class UpdateHandlerImpl(
             } else {
                 handleSinglePtsLocked(
                     refetch,
-                    /* if we are updating from a get*Difference, the pts may not be connected, let the onCommit know */
-                    if (firstPts == null) applicablePts else lastPts ?: firstPts,
+                    null,
                     false,
                     update,
                     true,
-                    skipDispatch
+                    skipDispatch,
+                    totalUpdated
                 )
-                lastPts = pts
             }
         }
         val applicableSeq = updates.seqStart?.minus(1)
@@ -333,9 +332,11 @@ open class UpdateHandlerImpl(
         commitNoOp: Boolean,
         update: UpdateType,
         skipPts: Boolean,
-        skipDispatch: Boolean
+        skipDispatch: Boolean,
+        totalUpdated: BatchUpdateState? = null
     ) {
         refetch?.let {
+            // cannot refetch if in catchup, but that's fine as it always sends the whole thing
             if (client.getAccessHash(PeerType.USER, it) == null) {
                 fetchHashes(applicablePts!!, update.ptsCount ?: 1)
             }
@@ -357,7 +358,7 @@ open class UpdateHandlerImpl(
                             }
                             else -> {
                                 Napier.v("Not waiting to commit pts ${update.channelId} $applicablePts $actualPts ${update.pts} ${update.ptsCount}")
-                                commitPts(update)
+                                commitPts(update, update.pts!!)
                                 null
                             }
                         }
@@ -367,7 +368,17 @@ open class UpdateHandlerImpl(
                         Napier.v("Waiting finished to commit pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
                         act {
                             processingUpdatesPts.remove(update.channelId to applicablePts)
-                            commitPts(update)
+                            commitPts(update, update.pts!!)
+                        }
+                    }
+                }
+            }
+            totalUpdated != null -> {
+                {
+                    act {
+                        if (++totalUpdated.current == totalUpdated.total) {
+                            Napier.v("Committing pts for batch ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount} $totalUpdated")
+                            commitPts(update, totalUpdated.end)
                         }
                     }
                 }
@@ -376,7 +387,7 @@ open class UpdateHandlerImpl(
                 {
                     act {
                         Napier.v("Committing pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
-                        commitPts(update)
+                        commitPts(update, update.pts!!)
                     }
                 }
             }
@@ -396,7 +407,7 @@ open class UpdateHandlerImpl(
         }
     }
 
-    protected suspend fun commitPts(update: UpdateType) {
+    protected suspend fun commitPts(update: UpdateType, pts: Int) {
         updateState.pts[update.channelId] = update.pts!!
         processingUpdatesPts.filterKeys { it.first == update.channelId && it.second <= update.pts!! }.forEach {
             // TODO: this is ugly, refactor the variable
@@ -522,7 +533,7 @@ open class UpdateHandlerImpl(
                                 state.date,
                                 seqStart,
                                 state.seq
-                            ), true, firstPts = previousPts + 1
+                            ), true, endPts = state.pts
                         )
                         updatesDate = state.date
                         updatesPts[null] = state.pts
@@ -605,9 +616,9 @@ open class UpdateHandlerImpl(
                         ),
                         result.users,
                         result.chats,
-                        0,
+                        -1,
                         0
-                    ), true, firstPts = pts + 1
+                    ), true, endPts = result.pts
                 )
                 updatesPts[channelId] =
                     result.pts // updates sent in the difference have wrong pts, but are sorted
@@ -708,6 +719,8 @@ open class UpdateHandlerImpl(
             is UpdateFolderPeersObject -> ptsCount
             else -> null
         }
+
+    protected data class BatchUpdateState(val total: Int, val end: Int, var current: Int = 0)
 }
 
 sealed class UpdateOrSkipped(open val update: UpdateType?)
