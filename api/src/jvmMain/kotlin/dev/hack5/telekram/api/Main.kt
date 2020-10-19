@@ -20,16 +20,14 @@ package dev.hack5.telekram.api
 
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
-import dev.hack5.telekram.core.exports.exportDC
+import dev.hack5.telekram.core.client.GroupingTelegramClient
 import dev.hack5.telekram.core.mtproto.PingRequest
 import dev.hack5.telekram.core.state.JsonSession
 import dev.hack5.telekram.core.state.invoke
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.toInputChannel
 import dev.hack5.telekram.core.utils.toInputPeer
-import dev.hack5.telekram.core.utils.toInputUser
 import kotlinx.coroutines.*
-import kotlinx.coroutines.debug.DebugProbes
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.single
@@ -39,7 +37,7 @@ import kotlin.system.measureNanoTime
 @FlowPreview
 @ExperimentalCoroutinesApi
 fun main(): Unit = runBlocking {
-    DebugProbes.install()
+    //DebugProbes.install()
     //System.setProperty("java.util.logging.SimpleFormatter.format", "[%1\$tT.%1\$tL] [%4$-7s] %5\$s %n")
     Napier.base(DebugAntilog())
     val (apiId, apiHash) = File("apiToken").readLines()
@@ -87,9 +85,15 @@ fun main(): Unit = runBlocking {
                                     update =
                                         client(Messages_EditMessageRequest(false, chat, it.id, "Pong"))
                                 }
+                                val groupedClient = GroupingTelegramClient(client, initialCapacity = 1000)
                                 val pingTime = measureNanoTime {
-                                    for (i in 0L until 100L)
-                                        client(PingRequest(i))
+                                    coroutineScope {
+                                        for (i in 0L until 1000L) {
+                                            launch {
+                                                groupedClient(PingRequest(i))
+                                            }
+                                        }
+                                    }
                                 }
                                 println(update)
                                 val job = CompletableDeferred<EditMessage.EditMessageEvent>()
@@ -105,7 +109,7 @@ fun main(): Unit = runBlocking {
                                             false,
                                             it.getInputChat(),
                                             it.id,
-                                            "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}"
+                                            "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}ns"
                                         )
                                     )
                                 client.sendUpdate(update!!)

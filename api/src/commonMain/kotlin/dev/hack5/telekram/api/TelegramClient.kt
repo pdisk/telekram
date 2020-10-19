@@ -25,13 +25,18 @@ import dev.hack5.telekram.core.connection.Connection
 import dev.hack5.telekram.core.connection.TcpFullConnection
 import dev.hack5.telekram.core.encoder.EncryptedMTProtoEncoder
 import dev.hack5.telekram.core.encoder.MTProtoEncoder
+import dev.hack5.telekram.core.encoder.MTProtoEncoderWrapped
 import dev.hack5.telekram.core.encoder.PlaintextMTProtoEncoder
+import dev.hack5.telekram.core.packer.MessagePackerUnpacker
+import dev.hack5.telekram.core.packer.MessagePackerUnpackerImpl
 import dev.hack5.telekram.core.state.*
+import dev.hack5.telekram.core.tl.UpdatesType
 import dev.hack5.telekram.core.updates.UpdateHandler
 import dev.hack5.telekram.core.updates.UpdateHandlerImpl
 import dev.hack5.telekram.core.updates.UpdateOrSkipped
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.channels.Channel
 
 open class TelegramClientApiImpl(
     apiId: String, apiHash: String,
@@ -50,6 +55,13 @@ open class TelegramClientApiImpl(
             client
         )
     },
+    packerConstructor: (
+        Connection,
+        MTProtoEncoderWrapped,
+        MTProtoState,
+        Channel<UpdatesType>,
+        CoroutineScope
+    ) -> MessagePackerUnpacker = ::MessagePackerUnpackerImpl,
     deviceModel: String = "ktg",
     systemVersion: String = "0.0.1",
     appVersion: String = "0.0.1",
@@ -65,6 +77,7 @@ open class TelegramClientApiImpl(
     plaintextEncoderConstructor,
     encryptedEncoderConstructor,
     updateHandlerConstructor,
+    packerConstructor,
     deviceModel,
     systemVersion,
     appVersion,

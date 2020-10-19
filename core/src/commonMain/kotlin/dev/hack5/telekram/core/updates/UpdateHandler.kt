@@ -408,9 +408,9 @@ open class UpdateHandlerImpl(
     }
 
     protected suspend fun commitPts(update: UpdateType, pts: Int) {
-        updateState.pts[update.channelId] = update.pts!!
-        processingUpdatesPts.filterKeys { it.first == update.channelId && it.second <= update.pts!! }.forEach {
-            // TODO: this is ugly, refactor the variable
+        updateState.pts[update.channelId] = pts
+        processingUpdatesPts.filterKeys { it.first == update.channelId && it.second <= pts }.forEach {
+            // TODO: this is ugly, refactor processingUpdatesPts to a map?
             it.value.complete()
         }
     }

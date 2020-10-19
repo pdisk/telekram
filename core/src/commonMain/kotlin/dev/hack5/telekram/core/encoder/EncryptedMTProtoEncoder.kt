@@ -25,8 +25,9 @@ import dev.hack5.telekram.core.crypto.AESPlatformImpl
 import dev.hack5.telekram.core.mtproto.MessageObject
 import dev.hack5.telekram.core.mtproto.ObjectObject
 import dev.hack5.telekram.core.state.MTProtoState
-import dev.hack5.telekram.core.tl.*
+import dev.hack5.telekram.core.tl.TLObject
 import dev.hack5.telekram.core.tl.toByteArray
+import dev.hack5.telekram.core.tl.toInt
 import dev.hack5.telekram.core.tl.toIntArray
 import kotlin.random.Random
 
@@ -59,11 +60,16 @@ open class EncryptedMTProtoEncoder(
 
     override suspend fun encodeMessage(data: MessageObject): ByteArray = encode(data.toTlRepr().toByteArray())
     override suspend fun wrapAndEncode(data: TLObject<*>, isContentRelated: Boolean): Pair<ByteArray, Long> {
+        val (message, msgId) = wrap(data, isContentRelated)
+        return encodeMessage(message) to msgId
+    }
+
+    override suspend fun wrap(data: TLObject<*>, isContentRelated: Boolean): Pair<MessageObject, Long> {
         val seq =
             (if (isContentRelated) state.act { state.seq++ } else state.act { state.seq }) * 2 + if (isContentRelated) 1 else 0
         val encoded = data.toTlRepr().toByteArray()
         val msgId = state.getMsgId()
-        return Pair(encodeMessage(MessageObject(msgId, seq, encoded.size, ObjectObject(data), bare = true)), msgId)
+        return Pair(MessageObject(msgId, seq, encoded.size, ObjectObject(data), bare = true), msgId)
     }
 
     override suspend fun decode(data: ByteArray): ByteArray {

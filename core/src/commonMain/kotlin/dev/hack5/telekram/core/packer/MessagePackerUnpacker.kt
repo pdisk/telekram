@@ -20,27 +20,43 @@ package dev.hack5.telekram.core.packer
 
 import com.github.aakira.napier.Napier
 import dev.hack5.telekram.core.connection.Connection
-import dev.hack5.telekram.core.encoder.EncryptedMTProtoEncoder
+import dev.hack5.telekram.core.encoder.MTProtoEncoderWrapped
 import dev.hack5.telekram.core.mtproto.*
 import dev.hack5.telekram.core.mtproto.MessageObject
 import dev.hack5.telekram.core.state.MTProtoState
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.GZIPImpl
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
 private const val tag = "MessagePackerUnpacker"
 
-class MessagePackerUnpacker(
-    private val connection: Connection,
-    private val encoder: EncryptedMTProtoEncoder,
-    private val state: MTProtoState,
+interface MessagePackerUnpacker {
+    suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*>
+    suspend fun wrap(message: TLMethod<*>): Pair<MessageObject, Long>
+    suspend fun sendAndRecvContainer(messages: List<Pair<MessageObject, Long>>): List<Deferred<TLObject<*>>>
+    suspend fun pump(input: Channel<ByteArray>)
+
     val updatesChannel: Channel<UpdatesType>
-) {
+    val containerMaxMessages: Int
+    val containerMaxSize: Int
+}
+
+class MessagePackerUnpackerImpl(
+    private val connection: Connection,
+    private val encoder: MTProtoEncoderWrapped,
+    private val state: MTProtoState,
+    override val updatesChannel: Channel<UpdatesType>,
+    private val scope: CoroutineScope
+) : MessagePackerUnpacker {
     private val pendingMessages: MutableMap<Long, CompletableDeferred<MessageUnpackAction>> = HashMap(5)
 
-    suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> {
+    override val containerMaxMessages
+        get() = 1020
+    override val containerMaxSize: Int
+        get() = 1044456 - 8 // idek what these numbers are, ask lonami.
+
+    override suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> {
         val encoded = encoder.wrapAndEncode(message)
         val deferred = CompletableDeferred<MessageUnpackAction>()
         pendingMessages[encoded.second] = deferred
@@ -51,7 +67,39 @@ class MessagePackerUnpacker(
         }
     }
 
-    suspend fun pump(input: Channel<ByteArray>) {
+    override suspend fun wrap(message: TLMethod<*>): Pair<MessageObject, Long> = encoder.wrap(message)
+
+    override suspend fun sendAndRecvContainer(messages: List<Pair<MessageObject, Long>>): List<Deferred<TLObject<*>>> {
+        val results = mutableListOf<Deferred<TLObject<*>>>()
+        val containedMessages = messages.map { encoded ->
+            val deferred = CompletableDeferred<MessageUnpackAction>()
+            val result = CompletableDeferred<TLObject<*>>()
+            results += result
+            scope.launch {
+                when (val action = deferred.await()) {
+                    /* "A container may only be accepted or rejected by the other party as a whole." */
+                    is MessageUnpackActionRetry -> sendAndRecvContainer(messages)
+                    is MessageUnpackActionReturn -> result.complete(action.value)
+                }
+            }
+            pendingMessages[encoded.second] = deferred
+            encoded
+        }
+        val container = MsgContainerObject(containedMessages.map { it.first })
+        val encoded = encoder.wrapAndEncode(container, false)
+        val deferred = CompletableDeferred<MessageUnpackAction>()
+        scope.launch {
+            when (val action = deferred.await()) {
+                /* "A container may only be accepted or rejected by the other party as a whole." */
+                is MessageUnpackActionRetry -> sendAndRecvContainer(messages)
+                is MessageUnpackActionReturn -> error("Server sent a response (${action.value}) to a container")
+            }
+        }
+        connection.send(encoded.first)
+        return results
+    }
+
+    override suspend fun pump(input: Channel<ByteArray>) {
         while (true) {
             try {
                 val b = input.receive()
@@ -163,13 +211,17 @@ class MessagePackerUnpacker(
         }
     }
 
-    private suspend fun handleMaybeGzipped(message: ObjectType): TLObject<*> {
+    private fun handleMaybeGzipped(message: ObjectType): TLObject<*> {
         return when (message) {
             is ObjectObject -> {
                 message.innerObject
             }
             is GzipPackedObject -> {
-                handleMaybeGzipped(ObjectObject.fromTlRepr(GZIPImpl.decompress(message.packedData).toIntArray())!!.second)
+                handleMaybeGzipped(
+                    ObjectObject.fromTlRepr(
+                        GZIPImpl.decompress(message.packedData).toIntArray()
+                    )!!.second
+                )
             }
         }
     }

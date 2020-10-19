@@ -38,19 +38,23 @@ private const val tag = "Connection"
 class ConnectionClosedError(message: String? = null, cause: Exception? = null) : Exception(message, cause)
 class AlreadyConnectedError(message: String? = null, cause: Exception? = null) : Exception(message, cause)
 
-@ExperimentalCoroutinesApi
 abstract class Connection(protected val scope: CoroutineScope, protected val host: String, protected val port: Int) {
+    @ExperimentalCoroutinesApi
     private val mutableConnectionState = MutableStateFlow<Boolean?>(false)
+
+    @ExperimentalCoroutinesApi
     val connectionState: StateFlow<Boolean?> = mutableConnectionState
     private val sendLock = Mutex()
     private val recvLock = Mutex()
     private var recvLoopTask: Job? = null
 
+    @ExperimentalCoroutinesApi
     private fun notifyConnectionStatus(status: Boolean?) {
         Napier.i("New connection state for $this: $status", tag = tag)
         mutableConnectionState.value = status
     }
 
+    @ExperimentalCoroutinesApi
     suspend fun connect() {
         if (mutableConnectionState.value != false)
             throw AlreadyConnectedError("Still connected to the sever. Please wait for `connected == false`")
@@ -59,6 +63,7 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
         notifyConnectionStatus(true)
     }
 
+    @ExperimentalCoroutinesApi
     suspend fun disconnect() {
         mutableConnectionState.value = null
         disconnectInternal()
@@ -71,6 +76,7 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
         }
     }
 
+    @ExperimentalCoroutinesApi
     suspend fun recvLoop(output: Channel<ByteArray>) = recvLock.withLock {
         while (mutableConnectionState.value == true)
             output.send(recvInternal())
@@ -88,7 +94,6 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
     protected abstract suspend fun disconnectInternal()
 }
 
-@ExperimentalCoroutinesApi
 abstract class TcpConnection(
     scope: CoroutineScope,
     host: String,
@@ -99,6 +104,7 @@ abstract class TcpConnection(
     protected val readChannel get() = socket?.readChannel!!
     protected val writeChannel get() = socket?.writeChannel!!
 
+    @ExperimentalCoroutinesApi
     override suspend fun connectInternal() {
         network(scope, host, port).let {
             it.connect()
@@ -106,12 +112,12 @@ abstract class TcpConnection(
         }
     }
 
+    @ExperimentalCoroutinesApi
     override suspend fun disconnectInternal() {
         socket?.close()
     }
 }
 
-@ExperimentalCoroutinesApi
 class TcpFullConnection(
     scope: CoroutineScope,
     host: String,

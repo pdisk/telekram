@@ -32,4 +32,5 @@ abstract class MTProtoEncoderWrapped(state: MTProtoState) : MTProtoEncoder(state
     abstract suspend fun decodeMessage(data: ByteArray): MessageObject
 
     abstract suspend fun wrapAndEncode(data: TLObject<*>, isContentRelated: Boolean = true): Pair<ByteArray, Long>
+    abstract suspend fun wrap(data: TLObject<*>, isContentRelated: Boolean = true): Pair<MessageObject, Long>
 }

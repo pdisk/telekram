@@ -21,16 +21,19 @@
 package dev.hack5.telekram.core.exports
 
 import dev.hack5.telekram.core.client.TelegramClient
-import dev.hack5.telekram.core.crypto.AuthKey
 import dev.hack5.telekram.core.state.MTProtoStateImpl
 import dev.hack5.telekram.core.state.MemorySession
 import dev.hack5.telekram.core.tl.Auth_ExportAuthorizationRequest
 import dev.hack5.telekram.core.tl.Auth_ExportedAuthorizationObject
 import dev.hack5.telekram.core.tl.Auth_ImportAuthorizationRequest
 import dev.hack5.telekram.core.tl.DcOptionObject
-import org.gciatto.kt.math.BigInteger
 
 suspend inline fun TelegramClient.exportDC(dc: Int, cdn: Boolean?, mediaOnly: Boolean?, crossinline block: suspend (TelegramClient) -> Unit) {
+    /*
+    contract {
+        callsInPlace(block, InvocationKind.EXACTLY_ONCE)
+    }
+     */
     val client = exportDC(dc, cdn, mediaOnly)
     try {
         block(client)

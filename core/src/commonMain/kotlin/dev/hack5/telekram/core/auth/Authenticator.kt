@@ -19,6 +19,7 @@
 package dev.hack5.telekram.core.auth
 
 import com.github.aakira.napier.Napier
+import com.soywiz.krypto.SecureRandom
 import com.soywiz.krypto.sha1
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.crypto.*
@@ -183,12 +184,16 @@ internal fun step9(newNonce: BigInteger, dhGen: SetClientDHParamsAnswerType, aut
     }
 }
 
-internal suspend fun authenticate(client: TelegramClient, plaintextEncoder: MTProtoEncoder): AuthKey {
-    val nonce = getSecureNonce(secureRandom = client.secureRandom)
+internal suspend fun authenticate(
+    client: TelegramClient,
+    plaintextEncoder: MTProtoEncoder,
+    secureRandom: SecureRandom
+): AuthKey {
+    val nonce = getSecureNonce(secureRandom = secureRandom)
     val pqRes = client.send(step1(nonce), plaintextEncoder) as ResPQObject
     val pq = step2(nonce, pqRes)
     val factors = step3(pq)
-    val newNonce = getSecureNonce(256, client.secureRandom)
+    val newNonce = getSecureNonce(256, secureRandom)
     val serverOuterDHParams = client.send(step4(newNonce, factors, pqRes) { Random.nextBytes(it) }, plaintextEncoder)
     Napier.d("serverDhParams=$serverOuterDHParams", tag = tag)
     val secrets = step5(serverOuterDHParams, nonce, newNonce, pqRes.serverNonce)
