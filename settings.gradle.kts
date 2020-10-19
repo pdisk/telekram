@@ -20,3 +20,4 @@ rootProject.name = "telekram"
 include("generator")
 include("core")
 include("api")
+include("sample")

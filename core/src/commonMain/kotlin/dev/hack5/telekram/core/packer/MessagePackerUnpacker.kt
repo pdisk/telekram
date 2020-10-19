@@ -54,7 +54,7 @@ class MessagePackerUnpackerImpl(
     override val containerMaxMessages
         get() = 1020
     override val containerMaxSize: Int
-        get() = 1044456 - 8 // idek what these numbers are, ask lonami.
+        get() = 1044456 - 8 // idek what these numbers are, ask lonami. docs say 2^15-8, meh.
 
     override suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> {
         val encoded = encoder.wrapAndEncode(message)

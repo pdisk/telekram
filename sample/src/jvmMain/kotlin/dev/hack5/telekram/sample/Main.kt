@@ -16,10 +16,11 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.hack5.telekram.api
+package dev.hack5.telekram.sample
 
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
+import dev.hack5.telekram.api.*
 import dev.hack5.telekram.core.client.GroupingTelegramClient
 import dev.hack5.telekram.core.mtproto.PingRequest
 import dev.hack5.telekram.core.state.JsonSession
@@ -126,10 +127,12 @@ fun main(): Unit = runBlocking {
                             }
                         }
 
-                        if (it.toId is PeerChannelObject) {
-                            client(Channels_ReadHistoryRequest(it.toId.toInputChannel(client), it.id))
-                        } else {
-                            client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                        it.toId.let { toId ->
+                            if (toId is PeerChannelObject) {
+                                client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
+                            } else {
+                                client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                            }
                         }
 
                     }
@@ -137,20 +140,25 @@ fun main(): Unit = runBlocking {
                         pendingEdits.remove(it.chatPeer to it.id)?.complete(it)
                     }
                     is SkippedUpdate.SkippedUpdateEvent -> {
-                        if (it.channelId != null) {
-                            client(
-                                Channels_ReadHistoryRequest(
-                                    PeerChannelObject(it.channelId).toInputChannel(client),
-                                    client.getMessages(PeerChannelObject(it.channelId).toInputPeer(client), limit = 1)
-                                        .single().id
+                        it.channelId.let { channelId ->
+                            if (channelId != null) {
+                                client(
+                                    Channels_ReadHistoryRequest(
+                                        PeerChannelObject(channelId).toInputChannel(client),
+                                        client.getMessages(
+                                            PeerChannelObject(channelId).toInputPeer(client),
+                                            limit = 1
+                                        )
+                                            .single().id
+                                    )
                                 )
-                            )
-                        } else {
-                            client.getDialogs().flatMapMerge { dialog ->
-                                when (dialog) {
-                                    is DialogChat -> TODO()
-                                    is DialogFolder -> {
-                                        client.getDialogs(folderId = dialog.folder.id)
+                            } else {
+                                client.getDialogs().flatMapMerge { dialog ->
+                                    when (dialog) {
+                                        is DialogChat -> TODO()
+                                        is DialogFolder -> {
+                                            client.getDialogs(folderId = dialog.folder.id)
+                                        }
                                     }
                                 }
                             }

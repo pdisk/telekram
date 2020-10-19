@@ -18,18 +18,12 @@
 
 plugins {
     kotlin("multiplatform")
-    id("org.jetbrains.dokka") version "0.10.0"
-    `maven-publish`
+    application
 }
-
-group = "dev.hack5.telekram"
-version = "0.0.1-SNAPSHOT"
 
 repositories {
     mavenCentral()
     jcenter()
-    mavenLocal()
-    maven(url = "https://jitpack.io")
 }
 
 val coroutinesVersion = "1.4.0-M1"
@@ -40,12 +34,11 @@ kotlin {
 
     sourceSets {
         val commonMain by getting {
-            kotlin.srcDir("generated/commonMain")
             dependencies {
+                implementation(project(":api"))
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
-                api(project(":core"))
             }
         }
         val commonTest by getting {
@@ -57,26 +50,23 @@ kotlin {
             }
         }
         jvm().compilations["test"].defaultSourceSet {
-            dependencies {
-            }
         }
     }
 }
 
-tasks.dokka {
-    outputFormat = "html"
-    outputDirectory = "$buildDir/javadoc"
-}
-
-val dokkaJar by tasks.creating(Jar::class) {
-    group = JavaBasePlugin.DOCUMENTATION_GROUP
-    description = "Assembles Kotlin docs with Dokka"
-    archiveClassifier.set("javadoc")
-    from(tasks.dokka)
-}
-
-publishing {
-    repositories {
-        mavenLocal()
+tasks {
+    getByName<org.gradle.jvm.tasks.Jar>("jar") {
+        manifest {
+            attributes["Main-Class"] = "dev.hack5.telekram.sample.MainKt"
+        }
     }
+    getByName<JavaExec>("run") {
+        dependsOn("jvmMainClasses")
+        classpath =
+            kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath + files("build/classes/kotlin/jvm/main")
+    }
+}
+
+application {
+    mainClassName = "dev.hack5.telekram.sample.MainKt"
 }
