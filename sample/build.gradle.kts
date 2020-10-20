@@ -46,7 +46,11 @@ kotlin {
             }
         }
         jvm().compilations["main"].defaultSourceSet {
-            dependencies {
+            dependencies {/*
+                implementation(kotlin("script-runtime"))
+                //implementation(kotlin("script-util"))
+                implementation(kotlin("compiler-embeddable"))
+            */
             }
         }
         jvm().compilations["test"].defaultSourceSet {
@@ -63,7 +67,7 @@ tasks {
     getByName<JavaExec>("run") {
         dependsOn("jvmMainClasses")
         classpath =
-            kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath + files("build/classes/kotlin/jvm/main")
+            kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath
     }
 }
 

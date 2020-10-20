@@ -341,7 +341,6 @@ open class UpdateHandlerImpl(
                 fetchHashes(applicablePts!!, update.ptsCount ?: 1)
             }
         }
-        println("$applicablePts $commitNoOp $skipPts $skipDispatch")
         val onCommit: suspend () -> Unit = when {
             commitNoOp -> {
                 { }
@@ -388,6 +387,7 @@ open class UpdateHandlerImpl(
                     act {
                         Napier.v("Committing pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
                         commitPts(update, update.pts!!)
+                        Napier.v("Finished commit")
                     }
                 }
             }
@@ -408,11 +408,13 @@ open class UpdateHandlerImpl(
     }
 
     protected suspend fun commitPts(update: UpdateType, pts: Int) {
+        println("start commit")
         updateState.pts[update.channelId] = pts
         processingUpdatesPts.filterKeys { it.first == update.channelId && it.second <= pts }.forEach {
             // TODO: this is ugly, refactor processingUpdatesPts to a map?
             it.value.complete()
         }
+        println("end commit")
     }
 
     protected suspend fun handleSingleSeqLocked(

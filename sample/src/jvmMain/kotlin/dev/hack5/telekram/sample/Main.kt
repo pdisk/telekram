@@ -75,7 +75,13 @@ fun main(): Unit = runBlocking {
         launch {
             try {
                 it.originalUpdate?.commit()
+                println("test")
+                println(it.javaClass.canonicalName)
+                println(it.originalUpdate?.update?.javaClass?.canonicalName)
+                println(it.originalUpdate?.update)
+                println(it.originalUpdate) // put a breakpoint here and evaluate `it` in debugger
                 println(it)
+                println("go")
                 when (it) {
                     is NewMessage.NewMessageEvent -> {
                         if (it.out) {
@@ -124,7 +130,16 @@ fun main(): Unit = runBlocking {
                                         }
                                     }
                                 }
-                            }
+                            }/*
+                            if (it.message.startsWith(".eval")) {
+                                ScriptEngineManager().engineFactories.forEach {
+                                    println("${it.engineName} ${it.extensions}")
+                                }
+                                val engine = ScriptEngineManager().getEngineByExtension("kts")!!
+                                engine.context.setAttribute("message", it.message, ScriptContext.ENGINE_SCOPE)
+                                engine.context.setAttribute("client", client, ScriptContext.ENGINE_SCOPE)
+                                engine.eval(it.message.split(" ", limit = 1).last())
+                            }*/
                         }
 
                         it.toId.let { toId ->
