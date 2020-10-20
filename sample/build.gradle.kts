@@ -64,6 +64,7 @@ tasks {
         dependsOn("jvmMainClasses")
         classpath =
             kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath + files("build/classes/kotlin/jvm/main")
+            standardInput = System.`in`
     }
 }
 
