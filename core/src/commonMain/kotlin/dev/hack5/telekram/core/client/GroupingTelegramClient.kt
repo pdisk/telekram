@@ -60,7 +60,6 @@ open class GroupingTelegramClient(
     }
 
     suspend fun sendPending() {
-        // TODO deal with containers that are too large to fit in the max size allowed, and split them
         val containerMaxSize = client.packer!!.containerMaxSize
         val containerMaxMessages = client.packer!!.containerMaxMessages
 

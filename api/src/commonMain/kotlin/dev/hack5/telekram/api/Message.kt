@@ -95,18 +95,6 @@ suspend fun TelegramClient.sendMessage(
         )
 
 suspend fun TelegramClient.sendMessage(
-    toPeer: Peer,
-    message: String,
-    replyToMsgId: Int? = null,
-    clearDraft: Boolean = true,
-    sendTime: Int? = null,
-    noWebpage: Boolean = false,
-    silent: Boolean = false,
-    replyMarkup: ReplyMarkupType? = null,
-    entities: List<MessageEntityType>? = null
-) = sendMessage(toPeer.inputPeer, message, replyToMsgId, clearDraft, sendTime, noWebpage, silent, replyMarkup, entities)
-
-suspend fun TelegramClient.sendMessage(
     toPeer: InputPeerType,
     message: String,
     replyToMsgId: Int? = null,

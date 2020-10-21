@@ -47,6 +47,7 @@ kotlin {
         }
         jvm().compilations["main"].defaultSourceSet {
             dependencies {
+                implementation(kotlin("scripting-jsr223"))
             }
         }
         jvm().compilations["test"].defaultSourceSet {
@@ -62,9 +63,14 @@ tasks {
     }
     getByName<JavaExec>("run") {
         dependsOn("jvmMainClasses")
+
         classpath =
-            kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath + files("build/classes/kotlin/jvm/main")
-            standardInput = System.`in`
+            kotlin.jvm().compilations["main"].runtimeDependencyFiles +
+                    files(getByName<ProcessResources>(kotlin.jvm().compilations["main"].processResourcesTaskName).destinationDir) +
+                    files(kotlin.jvm().compilations["main"].compileKotlinTask.destinationDir)
+
+        workingDir = rootDir
+        standardInput = System.`in`
     }
 }
 

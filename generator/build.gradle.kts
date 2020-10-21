@@ -66,8 +66,11 @@ tasks {
             .withPropertyName("inputSchema")
             .withPathSensitivity(PathSensitivity.RELATIVE)
         outputs.dir("../core/generated")
+
         classpath =
-            kotlin.jvm().compilations["main"].runtimeDependencyFiles + sourceSets["main"].runtimeClasspath + files("build/classes/kotlin/jvm/main")
+            kotlin.jvm().compilations["main"].runtimeDependencyFiles +
+                    files(getByName<ProcessResources>(kotlin.jvm().compilations["main"].processResourcesTaskName).destinationDir) +
+                    files(kotlin.jvm().compilations["main"].compileKotlinTask.destinationDir)
     }
 }
 

@@ -44,7 +44,6 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:$coroutinesVersion")
                 api(project(":core"))
             }
         }

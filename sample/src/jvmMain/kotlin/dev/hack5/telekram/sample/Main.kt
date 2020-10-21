@@ -22,6 +22,7 @@ import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
 import dev.hack5.telekram.api.*
 import dev.hack5.telekram.core.client.GroupingTelegramClient
+import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.mtproto.PingRequest
 import dev.hack5.telekram.core.state.JsonSession
 import dev.hack5.telekram.core.state.invoke
@@ -33,6 +34,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapMerge
 import kotlinx.coroutines.flow.single
 import java.io.File
+import javax.script.ScriptContext
+import javax.script.ScriptEngineManager
 import kotlin.system.measureNanoTime
 
 @FlowPreview
@@ -49,7 +52,7 @@ fun main(): Unit = runBlocking {
             deviceModel = "Linux",
             systemVersion = "5.8.15-201.fc32.x86_64",
             appVersion = "1.16.0",
-            session = JsonSession(File("telekram.json")).setDc(2, "149.154.167.40", 443),
+            session = JsonSession(File("telekram.json"))/*.setDc(2, "149.154.167.40", 443)*/,
             maxFloodWait = 15000,
             parentScope = this
         )
@@ -80,7 +83,7 @@ fun main(): Unit = runBlocking {
                     is NewMessage.NewMessageEvent -> {
                         if (it.out) {
                             if (it.message == ".ping") {
-                                var update: UpdatesType? = null
+                                var update: UpdatesType?
                                 val chat = it.getInputChat()
                                 val editTime = measureNanoTime {
                                     update =
@@ -123,6 +126,48 @@ fun main(): Unit = runBlocking {
                                             file.writeBytes(it)
                                         }
                                     }
+                                }
+                            }
+                            if (it.message.startsWith(".eval")) {
+                                val engine = ScriptEngineManager().getEngineByExtension("kts")!!
+                                val bindings = engine.getBindings(ScriptContext.ENGINE_SCOPE)
+                                bindings["bootstrap"] =
+                                    EvalDataWrapper(this + SupervisorJob(coroutineContext[Job]), client, it)
+                                engine.context.errorWriter = System.err.writer()
+                                engine.context.writer = System.err.writer()
+                                engine.context.reader = System.`in`.reader()
+                                val input = it.message.substringAfter(" ")
+                                val (header, body) = input.split("###", limit = 2)
+                                val code = """
+                                    $header
+                                    bootstrap.wrapAsync { client, event ->
+                                    $body
+                                    }
+                                """.trimIndent()
+                                try {
+                                    val deferred = engine.eval(code) as Deferred<*>
+                                    val output = deferred.await()
+                                    val update =
+                                        client(
+                                            Messages_EditMessageRequest(
+                                                false,
+                                                it.getInputChat(),
+                                                it.id,
+                                                "Input: $input\nOutput: $output"
+                                            )
+                                        )
+                                    client.sendUpdate(update)
+                                } catch (e: Throwable) {
+                                    val update =
+                                        client(
+                                            Messages_EditMessageRequest(
+                                                false,
+                                                it.getInputChat(),
+                                                it.id,
+                                                "Input: $input\nError: ${e.stackTraceToString()}"
+                                            )
+                                        )
+                                    client.sendUpdate(update)
                                 }
                             }
                         }
@@ -200,4 +245,15 @@ fun main(): Unit = runBlocking {
     //println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(channelId=1173753783, accessHash=-3214895137574953081)))))
     client.disconnect()
     Unit
+}
+
+@Suppress("unused") // used by kts
+class EvalDataWrapper(
+    private val scope: CoroutineScope,
+    private val client: TelegramClient,
+    private val event: NewMessage.NewMessageEvent
+) {
+    fun wrapAsync(block: suspend (TelegramClient, NewMessage.NewMessageEvent) -> Any?): Deferred<Any?> {
+        return scope.async { block(client, event) }
+    }
 }

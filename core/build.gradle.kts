@@ -97,8 +97,3 @@ publishing {
         mavenLocal()
     }
 }
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-    kotlinOptions.verbose = true
-    //kotlinOptions.useIR = true
-}
