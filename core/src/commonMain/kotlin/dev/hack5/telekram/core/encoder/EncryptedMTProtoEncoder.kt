@@ -78,8 +78,7 @@ open class EncryptedMTProtoEncoder(
                 // A server error occurred, the error is given as a HTTP status code
                 -404 -> {
                     // auth key unknown, regenerate it
-                    // TODO regen auth key and resend request (reauthenticating if needed, or doing cdn stuff)
-                    error("Auth key regeneration not implemented")
+                    TODO("Auth key regeneration not implemented")
                 }
                 else -> {
                     error("Unknown server error $error")

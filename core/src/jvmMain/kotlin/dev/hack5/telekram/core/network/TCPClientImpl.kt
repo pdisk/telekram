@@ -34,7 +34,8 @@ actual class ByteReadChannel(channel: io.ktor.utils.io.ByteReadChannel) : io.kto
 actual class TCPClientImpl actual constructor(
     scope: CoroutineScope,
     private val targetAddress: String,
-    private val targetPort: Int
+    private val targetPort: Int,
+    private val onError: ((Throwable) -> Unit)
 ) : TCPClient(targetAddress, targetPort) {
     private lateinit var socket: Socket
 
@@ -47,8 +48,14 @@ actual class TCPClientImpl actual constructor(
     @KtorExperimentalAPI
     override suspend fun connect() {
         socket = aSocket(actor).tcp().connect(targetAddress, targetPort)
+        socket.socketContext.invokeOnCompletion {
+            if (it != null) {
+                onError(it)
+            }
+        }
         readChannel = ByteReadChannel(socket.openReadChannel())
         writeChannel = ByteWriteChannel(socket.openWriteChannel())
+        // TODO refactor api to use attachForReading and read the right amount of data at once
     }
 
     @KtorExperimentalAPI
@@ -57,13 +64,10 @@ actual class TCPClientImpl actual constructor(
         readChannel?.cancel(null)
         readChannel = null
         writeChannel?.close(null)
-        println("closed write")
         writeChannel = null
-        println("nulled write")
         @Suppress("BlockingMethodInNonBlockingContext") // incorrect
         socket.close()
         socket.awaitClosed()
-        println("closed sock")
         actor.close()
     }
 

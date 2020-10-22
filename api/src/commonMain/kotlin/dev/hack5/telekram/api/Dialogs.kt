@@ -75,5 +75,5 @@ sealed class Dialog {
     }
 }
 
-data class DialogChat(override val dialog: DialogType, val peer: Peer, val inputPeer: InputPeerType) : Dialog()
-data class DialogFolder(override val dialog: DialogType, val folder: FolderObject) : Dialog()
+data class DialogChat(override val dialog: DialogObject, val peer: Peer, val inputPeer: InputPeerType) : Dialog()
+data class DialogFolder(override val dialog: DialogFolderObject, val folder: FolderObject) : Dialog()

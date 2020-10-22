@@ -32,22 +32,22 @@ val PeerType.id
         is PeerChannelObject -> channelId
     }
 
-sealed class Peer(val id: Int, val inputPeer: InputPeerType)
+sealed class Peer(val id: Int, val inputPeer: InputPeerType, val peer: PeerType)
 
 data class PeerUser(val user: UserObject, val inputUser: InputUserType) :
-    Peer(user.id, inputUser.toInputPeer())
+    Peer(user.id, inputUser.toInputPeer(), PeerUserObject(user.id))
 
-data class PeerChat(val chat: ChatObject) : Peer(chat.id, chat.toInputChat())
+data class PeerChat(val chat: ChatObject) : Peer(chat.id, chat.toInputChat(), PeerChatObject(chat.id))
 data class PeerChannel(val channel: ChannelObject, val inputChannel: InputChannelType) :
-    Peer(channel.id, inputChannel.toInputPeer())
+    Peer(channel.id, inputChannel.toInputPeer(), PeerChannelObject(channel.id))
 
 suspend fun UserObject.toPeer(client: TelegramClient) = PeerUser(this, toInputUser(client))
 fun ChatObject.toPeer() = PeerChat(this)
 suspend fun ChannelObject.toPeer(client: TelegramClient) = PeerChannel(this, toInputChannel(client))
 
 suspend fun ChatType.toPeer(client: TelegramClient) = when (this) {
-    is ChatObject -> this.toPeer()
-    is ChannelObject -> this.toPeer(client)
+    is ChatObject -> toPeer()
+    is ChannelObject -> toPeer(client)
     is ChatEmptyObject -> null
     is ChatForbiddenObject -> null
     is ChannelForbiddenObject -> null

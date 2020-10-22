@@ -22,8 +22,6 @@ import com.github.aakira.napier.Napier
 import com.soywiz.klock.DateTime
 import com.soywiz.klock.seconds
 import dev.hack5.telekram.core.crypto.AuthKey
-import dev.hack5.telekram.core.tl.asTlObject
-import dev.hack5.telekram.core.tl.toByteArray
 import dev.hack5.telekram.core.utils.GenericActor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.Serializable
@@ -55,6 +53,8 @@ interface MTProtoState {
 
     suspend fun updateMsgId(msgId: Long)
     suspend fun updateSeqNo(seq: Int)
+
+    suspend fun reset()
 }
 
 @Serializable
@@ -65,7 +65,7 @@ data class MTProtoStateImpl(override val authKey: AuthKey? = null) : MTProtoStat
     override var salt = byteArrayOf(0, 0, 0, 0, 0, 0, 0, 0)
 
     @Transient
-    override val sessionId = Random.nextBytes(8)
+    override var sessionId = Random.nextBytes(8)
 
     @Transient
     override var seq = 0
@@ -135,4 +135,14 @@ data class MTProtoStateImpl(override val authKey: AuthKey? = null) : MTProtoStat
     @ExperimentalUnsignedTypes
     override suspend fun updateMsgId(msgId: Long) =
         check(validateMsgId(msgId)) { "msg_id from server incorrect ($msgId)" }
+
+    /**
+     * Create a new session and reset all the things that need to be reset
+     */
+    override suspend fun reset() = act {
+        sessionId = Random.nextBytes(8)
+        seq = 0
+        remoteContentRelatedSeq = -1
+        lastMsgId = 0L
+    }
 }

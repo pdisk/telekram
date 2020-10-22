@@ -50,14 +50,6 @@ suspend fun TelegramClient.getChatId(message: MessageType): Int? = when (message
 }
 
 suspend fun TelegramClient.sendMessage(
-    toPeer: Peer,
-    message: MessageObject,
-    replyToMsgId: Int? = null,
-    clearDraft: Boolean = true,
-    sendTime: Int? = null
-) = sendMessage(toPeer.inputPeer, message, replyToMsgId, clearDraft, sendTime)
-
-suspend fun TelegramClient.sendMessage(
     toPeer: InputPeerType,
     message: MessageObject,
     replyToMsgId: Int? = null,
@@ -120,18 +112,6 @@ suspend fun TelegramClient.sendMessage(
             sendTime
         )
     )
-
-suspend fun TelegramClient.sendMessage(
-    toPeer: Peer,
-    media: InputMediaType,
-    caption: String = "",
-    replyToMsgId: Int? = null,
-    clearDraft: Boolean = true,
-    sendTime: Int? = null,
-    silent: Boolean = false,
-    replyMarkup: ReplyMarkupType? = null,
-    entities: List<MessageEntityType>? = null
-) = sendMessage(toPeer.inputPeer, media, caption, replyToMsgId, clearDraft, sendTime, silent, replyMarkup, entities)
 
 suspend fun TelegramClient.sendMessage(
     toPeer: InputPeerType,

@@ -24,11 +24,8 @@ import dev.hack5.telekram.core.errors.BadRequestError
 import dev.hack5.telekram.core.state.UpdateState
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.*
-import kotlinx.coroutines.CompletableJob
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.withTimeoutOrNull
 
 interface UpdateHandler {
     suspend fun getEntities(value: TLObject<*>, forUpdate: Boolean): Map<String, MutableMap<Long, Long>>
@@ -42,11 +39,14 @@ open class UpdateHandlerImpl(
     protected val updateState: UpdateState,
     val client: TelegramClient,
     protected val maxDifference: Int? = null,
-    val maxChannelDifference: Int = 100
+    val maxChannelDifference: Int = 100,
+    val debug: Boolean = false
 ) : BaseActor(scope), UpdateHandler {
     // TODO: implement qts stuff
     // IMPORTANT: DO NOT invoke any request that returns any type handled by [PtsWalker] while locked in act {} without forUpdate=true
     // IMPORTANT: Also, if the code will result in a recursive network request, pass skipEntities=true (exclusive with forUpdate)
+
+    // IMPORTANT: DO NOT modify this file without running it past hackintosh5! You have CERTAINLY made a mistake.
 
     // updates we are waiting on the server for
     protected val pendingUpdatesSeq = mutableMapOf<Int, CompletableJob>()
@@ -121,10 +121,11 @@ open class UpdateHandlerImpl(
     protected suspend fun handleUpdates(
         updates: UpdatesType,
         skipChecks: Boolean = false,
+        skipAllChecks: Boolean = false,
         skipDispatch: Boolean = false,
         endPts: Int? = null
     ) {
-        Napier.d({ "got updates $updates" })
+        suspend fun <R> actIfNeeded(block: suspend () -> R): R = if (skipChecks) block() else act { block() }
         var refetch: Int? = null
         val innerUpdates = when (updates) {
             is UpdatesTooLongObject -> {
@@ -221,8 +222,8 @@ open class UpdateHandlerImpl(
             val pts = update.pts!!
             val ptsCount = update.ptsCount
             val applicablePts = pts - ptsCount!!
-            if (!skipChecks) {
-                val job = act {
+            if (!skipChecks || (update.channelId != null && !skipAllChecks)) {
+                val job = actIfNeeded {
                     val localPts = updatesPts[update.channelId]
 
                     when {
@@ -250,7 +251,7 @@ open class UpdateHandlerImpl(
                     val join = withTimeoutOrNull(500) {
                         it.join()
                     }
-                    act {
+                    actIfNeeded {
                         pendingUpdatesPts.remove(update.channelId to applicablePts)
                     }
                     if (join == null) {
@@ -262,7 +263,7 @@ open class UpdateHandlerImpl(
                         return // server will resend this update too
                     }
 
-                    act {
+                    actIfNeeded {
                         handleSinglePtsLocked(refetch, applicablePts, false, update, false, skipDispatch)
                     }
                 }
@@ -280,7 +281,7 @@ open class UpdateHandlerImpl(
         }
         val applicableSeq = updates.seqStart?.minus(1)
         if (!skipChecks) {
-            val (localSeq, job) = act {
+            val (localSeq, job) = actIfNeeded {
                 val localSeq = updatesSeq
                 val job = when {
                     applicableSeq == null || applicableSeq == -1 -> {
@@ -310,13 +311,13 @@ open class UpdateHandlerImpl(
                     it.join()
                 }
                 if (join == null) {
-                    act {
+                    actIfNeeded {
                         pendingUpdatesSeq.remove(applicableSeq)
                     }
                     fetchUpdates()
                     return // server will resend this update too
                 }
-                act {
+                actIfNeeded {
                     pendingUpdatesSeq.remove(applicableSeq)
                     handleSingleSeqLocked(hasNoPts, applicableSeq!!, updates, false, skipDispatch)
                 }
@@ -363,8 +364,14 @@ open class UpdateHandlerImpl(
                         }
                     }
                     job?.let {
+                        if (debug)
+                            scope.launch {
+                                delay(1000)
+                                if (job.isActive)
+                                    Napier.w("Still waiting to commit pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
+                            }
                         job.join()
-                        Napier.v("Waiting finished to commit pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
+                        Napier.v("Waiting to commit pts finished ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
                         act {
                             processingUpdatesPts.remove(update.channelId to applicablePts)
                             commitPts(update, update.pts!!)
@@ -387,7 +394,6 @@ open class UpdateHandlerImpl(
                     act {
                         Napier.v("Committing pts ${update.channelId} $applicablePts ${update.pts} ${update.ptsCount}")
                         commitPts(update, update.pts!!)
-                        Napier.v("Finished commit")
                     }
                 }
             }
@@ -401,20 +407,18 @@ open class UpdateHandlerImpl(
             onCommit()
         }
         if (!skipPts) {
-            Napier.d("Setting pts to ${update.pts} ($skipDispatch)")
+            Napier.v("Setting pts to ${update.pts} ($skipDispatch)")
             updatesPts[update.channelId] = update.pts!!
             pendingUpdatesPts[update.channelId to update.pts!!]?.complete()
         }
     }
 
     protected suspend fun commitPts(update: UpdateType, pts: Int) {
-        println("start commit")
         updateState.pts[update.channelId] = pts
         processingUpdatesPts.filterKeys { it.first == update.channelId && it.second <= pts }.forEach {
             // TODO: this is ugly, refactor processingUpdatesPts to a map?
             it.value.complete()
         }
-        println("end commit")
     }
 
     protected suspend fun handleSingleSeqLocked(
@@ -440,8 +444,14 @@ open class UpdateHandlerImpl(
                     }
                 }
                 job?.let {
+                    if (debug)
+                        scope.launch {
+                            delay(1000)
+                            if (job.isActive)
+                                Napier.w("Still Waiting to commit seq $applicableSeq ${updateState.seq} ${updates.seq}")
+                        }
                     job.join()
-                    Napier.v("Waiting finished to commit seq $applicableSeq ${updateState.seq} ${updates.seq}")
+                    Napier.v("Waiting to commit seq finished $applicableSeq ${updateState.seq} ${updates.seq}")
                     act {
                         processingUpdatesSeq.remove(applicableSeq)
                         commitSeq(updates)
@@ -535,7 +545,7 @@ open class UpdateHandlerImpl(
                                 state.date,
                                 seqStart,
                                 state.seq
-                            ), true, endPts = state.pts
+                            ), skipChecks = true, endPts = state.pts
                         )
                         updatesDate = state.date
                         updatesPts[null] = state.pts
@@ -620,7 +630,7 @@ open class UpdateHandlerImpl(
                         result.chats,
                         -1,
                         0
-                    ), true, endPts = result.pts
+                    ), skipChecks = true, skipAllChecks = true, endPts = result.pts
                 )
                 updatesPts[channelId] =
                     result.pts // updates sent in the difference have wrong pts, but are sorted

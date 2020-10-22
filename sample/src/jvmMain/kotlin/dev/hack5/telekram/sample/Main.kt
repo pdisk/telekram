@@ -30,9 +30,7 @@ import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.toInputChannel
 import dev.hack5.telekram.core.utils.toInputPeer
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.flatMapMerge
-import kotlinx.coroutines.flow.single
+import kotlinx.coroutines.flow.*
 import java.io.File
 import javax.script.ScriptContext
 import javax.script.ScriptEngineManager
@@ -52,10 +50,11 @@ fun main(): Unit = runBlocking {
             deviceModel = "Linux",
             systemVersion = "5.8.15-201.fc32.x86_64",
             appVersion = "1.16.0",
-            session = JsonSession(File("telekram.json"))/*.setDc(2, "149.154.167.40", 443)*/,
-            maxFloodWait = 15000,
+            session = JsonSession(File("telekram.json")).setDc(2, "149.154.167.40", 443),
+            maxFloodWait = Long.MAX_VALUE,
             parentScope = this
         )
+    client.init()
     /*client.updateCallbacks += { or ->
         or.update?.let {
             println(it)
@@ -77,8 +76,6 @@ fun main(): Unit = runBlocking {
     client.eventCallbacks += {
         launch {
             try {
-                it.originalUpdate?.commit()
-                println(it)
                 when (it) {
                     is NewMessage.NewMessageEvent -> {
                         if (it.out) {
@@ -172,14 +169,15 @@ fun main(): Unit = runBlocking {
                             }
                         }
 
-                        it.toId.let { toId ->
-                            if (toId is PeerChannelObject) {
-                                client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
-                            } else {
-                                client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                        if (!it.out) {
+                            it.toId.let { toId ->
+                                if (toId is PeerChannelObject) {
+                                    client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
+                                } else {
+                                    client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                                }
                             }
                         }
-
                     }
                     is EditMessage.EditMessageEvent -> {
                         pendingEdits.remove(it.chatPeer to it.id)?.complete(it)
@@ -200,11 +198,25 @@ fun main(): Unit = runBlocking {
                             } else {
                                 client.getDialogs().flatMapMerge { dialog ->
                                     when (dialog) {
-                                        is DialogChat -> TODO()
+                                        is DialogChat -> flowOf(dialog)
                                         is DialogFolder -> {
                                             client.getDialogs(folderId = dialog.folder.id)
+                                                .filterIsInstance/*<DialogChat>*/()
                                         }
                                     }
+                                }.filter {
+                                    it.dialog.unreadCount > 0
+                                }.collect {
+                                    client(
+                                        Messages_ReadHistoryRequest(
+                                            it.inputPeer,
+                                            client.getMessages(
+                                                it.inputPeer,
+                                                limit = 1
+                                            )
+                                                .single().id
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -215,6 +227,8 @@ fun main(): Unit = runBlocking {
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Napier.e("error", e)
+            } finally {
+                it.originalUpdate?.commit()
             }
         }
         Unit

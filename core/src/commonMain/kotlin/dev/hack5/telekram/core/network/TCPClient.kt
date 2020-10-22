@@ -42,4 +42,9 @@ abstract class TCPClient protected constructor(targetAddress: String, targetPort
     abstract suspend fun close()
 }
 
-expect class TCPClientImpl(scope: CoroutineScope, targetAddress: String, targetPort: Int) : TCPClient
+expect class TCPClientImpl(
+    scope: CoroutineScope,
+    targetAddress: String,
+    targetPort: Int,
+    onError: (Throwable) -> Unit
+) : TCPClient

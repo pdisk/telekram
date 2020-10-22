@@ -35,8 +35,9 @@ import kotlinx.coroutines.sync.withLock
 
 private const val tag = "Connection"
 
-class ConnectionClosedError(message: String? = null, cause: Exception? = null) : Exception(message, cause)
-class AlreadyConnectedError(message: String? = null, cause: Exception? = null) : Exception(message, cause)
+open class ConnectionException(message: String, cause: Exception? = null) : Exception(message, cause)
+class ConnectionClosedException(message: String, cause: Exception? = null) : ConnectionException(message, cause)
+class AlreadyConnectedException(message: String, cause: Exception? = null) : ConnectionException(message, cause)
 
 abstract class Connection(protected val scope: CoroutineScope, protected val host: String, protected val port: Int) {
     @ExperimentalCoroutinesApi
@@ -55,9 +56,15 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
     }
 
     @ExperimentalCoroutinesApi
+    protected fun onError(e: Throwable) {
+        Napier.e("Exception in connection for $this: $e", tag = tag)
+        mutableConnectionState.value = false
+    }
+
+    @ExperimentalCoroutinesApi
     suspend fun connect() {
         if (mutableConnectionState.value != false)
-            throw AlreadyConnectedError("Still connected to the sever. Please wait for `connected == false`")
+            throw AlreadyConnectedException("Still connected to the sever. Please wait for `connected == false`")
         notifyConnectionStatus(null)
         connectInternal()
         notifyConnectionStatus(true)
@@ -65,26 +72,43 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
 
     @ExperimentalCoroutinesApi
     suspend fun disconnect() {
-        mutableConnectionState.value = null
+        notifyConnectionStatus(null)
         disconnectInternal()
-        mutableConnectionState.value = false
+        notifyConnectionStatus(false)
     }
 
     suspend fun send(data: ByteArray) {
         sendLock.withLock {
-            sendInternal(data)
+            try {
+                sendInternal(data)
+            } catch (e: ConnectionClosedException) {
+                @Suppress("EXPERIMENTAL_API_USAGE")
+                notifyConnectionStatus(false)
+                throw e
+            }
         }
     }
 
     @ExperimentalCoroutinesApi
     suspend fun recvLoop(output: Channel<ByteArray>) = recvLock.withLock {
         while (mutableConnectionState.value == true)
-            output.send(recvInternal())
+            try {
+                output.send(recvInternal())
+            } catch (e: ConnectionClosedException) {
+                notifyConnectionStatus(false)
+                throw e
+            }
     }
 
     suspend fun recv(): ByteArray {
         return recvLock.withLock {
-            return@withLock recvInternal()
+            try {
+                return@withLock recvInternal()
+            } catch (e: ConnectionClosedException) {
+                @Suppress("EXPERIMENTAL_API_USAGE")
+                notifyConnectionStatus(false)
+                throw e
+            }
         }
     }
 
@@ -98,21 +122,22 @@ abstract class TcpConnection(
     scope: CoroutineScope,
     host: String,
     port: Int,
-    private val network: (CoroutineScope, String, Int) -> TCPClient
+    private val network: (CoroutineScope, String, Int, (Throwable) -> Unit) -> TCPClient
 ) : Connection(scope, host, port) {
     private var socket: TCPClient? = null
-    protected val readChannel get() = socket?.readChannel!!
-    protected val writeChannel get() = socket?.writeChannel!!
+    protected val readChannel
+        get() = socket?.readChannel ?: throw ConnectionClosedException("Connection was closed earlier")
+    protected val writeChannel
+        get() = socket?.writeChannel ?: throw ConnectionClosedException("Connection was closed earlier")
 
     @ExperimentalCoroutinesApi
     override suspend fun connectInternal() {
-        network(scope, host, port).let {
+        network(scope, host, port, ::onError).let {
             it.connect()
             socket = it
         }
     }
 
-    @ExperimentalCoroutinesApi
     override suspend fun disconnectInternal() {
         socket?.close()
     }
@@ -122,7 +147,7 @@ class TcpFullConnection(
     scope: CoroutineScope,
     host: String,
     port: Int,
-    network: (CoroutineScope, String, Int) -> TCPClient = ::TCPClientImpl
+    network: (CoroutineScope, String, Int, (Throwable) -> Unit) -> TCPClient = ::TCPClientImpl
 ) : TcpConnection(scope, host, port, network) {
     constructor(scope: CoroutineScope, host: String, port: Int) : this(scope, host, port, ::TCPClientImpl)
 
@@ -142,25 +167,25 @@ class TcpFullConnection(
         try {
             len = readChannel.readIntLittleEndian()
         } catch (e: ClosedReceiveChannelException) {
-            throw ConnectionClosedError(cause=e)
+            throw ConnectionClosedException("Unable to read len", cause = e)
         }
         val seq: Int
         try {
             seq = readChannel.readIntLittleEndian()
         } catch (e: ClosedReceiveChannelException) {
-            throw ConnectionClosedError(cause=e)
+            throw ConnectionClosedException("Unable to read seq", cause = e)
         }
         val ret = ByteArray(len - 12)
         try {
             readChannel.readFully(ret, 0, ret.size)
         } catch (e: ClosedReceiveChannelException) {
-            throw ConnectionClosedError(cause=e)
+            throw ConnectionClosedException("Unable to read data", cause = e)
         }
         val crc: Int
         try {
             crc = readChannel.readIntLittleEndian()
         } catch (e: ClosedReceiveChannelException) {
-            throw ConnectionClosedError(cause=e)
+            throw ConnectionClosedException("Unable to read CRC", cause = e)
         }
         val full = byteArrayOf(*len.toByteArray(), *seq.toByteArray(), *ret)
         val calculatedCrc = calculateCRC32(full)

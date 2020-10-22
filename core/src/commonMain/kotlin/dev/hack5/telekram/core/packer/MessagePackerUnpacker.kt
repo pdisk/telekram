@@ -20,6 +20,7 @@ package dev.hack5.telekram.core.packer
 
 import com.github.aakira.napier.Napier
 import dev.hack5.telekram.core.connection.Connection
+import dev.hack5.telekram.core.connection.ConnectionException
 import dev.hack5.telekram.core.encoder.MTProtoEncoderWrapped
 import dev.hack5.telekram.core.mtproto.*
 import dev.hack5.telekram.core.mtproto.MessageObject
@@ -40,27 +41,35 @@ interface MessagePackerUnpacker {
     val updatesChannel: Channel<UpdatesType>
     val containerMaxMessages: Int
     val containerMaxSize: Int
+
+    suspend fun resetConnection(newConnection: Connection)
 }
 
 class MessagePackerUnpackerImpl(
-    private val connection: Connection,
+    private var connection: Connection,
     private val encoder: MTProtoEncoderWrapped,
     private val state: MTProtoState,
     override val updatesChannel: Channel<UpdatesType>,
     private val scope: CoroutineScope
 ) : MessagePackerUnpacker {
-    private val pendingMessages: MutableMap<Long, CompletableDeferred<MessageUnpackAction>> = HashMap(5)
+    private val pendingMessages: MutableMap<Long, Pair<CompletableDeferred<MessageUnpackAction>, Boolean>> = HashMap(5)
 
     override val containerMaxMessages
         get() = 1020
     override val containerMaxSize: Int
         get() = 1044456 - 8 // idek what these numbers are, ask lonami. docs say 2^15-8, meh.
 
+    private val connectionReplaced = Job()
+
     override suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> {
         val encoded = encoder.wrapAndEncode(message)
         val deferred = CompletableDeferred<MessageUnpackAction>()
-        pendingMessages[encoded.second] = deferred
-        connection.send(encoded.first)
+        pendingMessages[encoded.second] = deferred to true
+        try {
+            connection.send(encoded.first)
+        } catch (e: ConnectionException) {
+            /* no-op - we will get a MessageUnpackActionRetry once the reconnection is complete */
+        }
         return when (val action = deferred.await()) {
             is MessageUnpackActionRetry -> sendAndRecv(message)
             is MessageUnpackActionReturn -> action.value
@@ -78,11 +87,11 @@ class MessagePackerUnpackerImpl(
             scope.launch {
                 when (val action = deferred.await()) {
                     /* "A container may only be accepted or rejected by the other party as a whole." */
-                    is MessageUnpackActionRetry -> sendAndRecvContainer(messages)
+                    is MessageUnpackActionRetry -> error("Server sent a rejection to a container submessage")
                     is MessageUnpackActionReturn -> result.complete(action.value)
                 }
             }
-            pendingMessages[encoded.second] = deferred
+            pendingMessages[encoded.second] = deferred to false
             encoded
         }
         val container = MsgContainerObject(containedMessages.map { it.first })
@@ -95,6 +104,7 @@ class MessagePackerUnpackerImpl(
                 is MessageUnpackActionReturn -> error("Server sent a response (${action.value}) to a container")
             }
         }
+        pendingMessages[encoded.second] = deferred to true
         connection.send(encoded.first)
         return results
     }
@@ -120,7 +130,6 @@ class MessagePackerUnpackerImpl(
                 return unpackMessage(message.body, message.msgId)
             else
                 state.updateMsgId(msgId!!)
-            Napier.d("Got message $message")
             when (message) {
                 is ObjectType -> {
                     unpackMessage(handleMaybeGzipped(message), msgId)
@@ -131,7 +140,7 @@ class MessagePackerUnpackerImpl(
                     state.act {
                         state.salt = message.newServerSalt.asTlObject().toTlRepr().toByteArray()
                     }
-                    pendingMessages.getValue(message.badMsgId).complete(MessageUnpackActionRetry)
+                    pendingMessages.getValue(message.badMsgId).first.complete(MessageUnpackActionRetry)
                 }
                 is NewSessionCreatedObject -> return // We don't care about new sessions, AFAIK
                 is MsgContainerObject -> {
@@ -141,13 +150,17 @@ class MessagePackerUnpackerImpl(
                 is RpcResultObject -> {
                     val result = handleMaybeGzipped(message.result)
                     //resultsChannel.send(result)
-                    pendingMessages[message.reqMsgId]?.complete(
+                    pendingMessages[message.reqMsgId]?.first?.complete(
                         MessageUnpackActionReturn(
                             result
                         )
                     )
                 }
-                is PongObject -> pendingMessages.getValue(message.msgId).complete(MessageUnpackActionReturn(message))
+                is PongObject -> pendingMessages.getValue(message.msgId).first.complete(
+                    MessageUnpackActionReturn(
+                        message
+                    )
+                )
                 is BadMsgNotificationObject -> {
                     Napier.e("Bad msg ${message.badMsgId} (${message.errorCode})", tag = tag)
                     when (message.errorCode) {
@@ -173,7 +186,7 @@ class MessagePackerUnpackerImpl(
                         64 -> Napier.e("Server says invalid container", tag = tag)
                         else -> Napier.e("Server sent invalid BadMsgNotification", tag = tag)
                     }
-                    pendingMessages[message.badMsgId]?.complete(MessageUnpackActionRetry)
+                    pendingMessages[message.badMsgId]?.first?.complete(MessageUnpackActionRetry)
                 }
                 is MsgDetailedInfoObject -> {
                     Napier.e("Detailed msg info", tag = tag)
@@ -222,6 +235,16 @@ class MessagePackerUnpackerImpl(
                         GZIPImpl.decompress(message.packedData).toIntArray()
                     )!!.second
                 )
+            }
+        }
+    }
+
+    override suspend fun resetConnection(newConnection: Connection) {
+        connection = newConnection
+        state.reset()
+        pendingMessages.forEach {
+            if (it.value.second) {
+                it.value.first.complete(MessageUnpackActionRetry)
             }
         }
     }
