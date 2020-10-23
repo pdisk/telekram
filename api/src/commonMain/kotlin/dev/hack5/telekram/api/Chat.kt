@@ -24,10 +24,10 @@ import dev.hack5.telekram.core.utils.toInputPeer
 import dev.hack5.telekram.core.utils.toInputUser
 
 interface ChatGetter {
-    val chatPeer: PeerType
+    val chatPeer: PeerType?
     val client: TelegramClient
 
-    suspend fun getChat(): Peer = chatPeer.let {
+    suspend fun getChat(): Peer? = chatPeer.let {
         when (it) {
             is PeerUserObject -> (client(
                 Users_GetUsersRequest(
@@ -44,7 +44,9 @@ interface ChatGetter {
                     listOf(it.toInputChannel(client))
                 )
             ) as Messages_ChatsObject).chats.single() as ChannelObject).toPeer(client)
+            null -> null
         }
     }
-    suspend fun getInputChat(): InputPeerType = chatPeer.toInputPeer(client)
+
+    suspend fun getInputChat(): InputPeerType? = chatPeer?.toInputPeer(client)
 }

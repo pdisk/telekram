@@ -52,40 +52,17 @@ object NewMessage : EventHandler<NewMessage.NewMessageEvent> {
     data class NewMessageEvent(
         override val client: TelegramClient,
         override val originalUpdate: Update,
-        val originalMessage: MessageType,
-        val out: Boolean,
-        val mentioned: Boolean,
-        val mediaUnread: Boolean,
-        val silent: Boolean,
-        val post: Boolean,
-        val fromScheduled: Boolean,
-        val legacy: Boolean,
-        val editHide: Boolean,
-        val id: Int,
-        val fromId: Int?,
-        val toId: PeerType,
-        val fwdFrom: MessageFwdHeaderType?,
-        val viaBotId: Int?,
-        val replyToMsgId: Int?,
-        val date: Int,
-        val message: String,
-        val media: MessageMediaType?,
-        val replyMarkup: ReplyMarkupType?,
-        val entities: List<MessageEntityType>,
-        val views: Int?,
-        val editDate: Int?,
-        val postAuthor: String?,
-        val groupedId: Long?,
-        val restrictionReason: List<RestrictionReasonType>
+        val message: MessageType
     ) : Event, SenderGetter, ChatGetter {
-        override val senderId: Int? get() = fromId
-        override val chatPeer: PeerType
-            get() = when (toId) {
+        override val senderId: Int? get() = message.fromId
+        override val chatPeer: PeerType?
+            get() = when (val toId = message.toId) {
                 is PeerUserObject -> {
-                    if (out) toId else PeerUserObject(fromId!!)
+                    if (message.out) toId else PeerUserObject(message.fromId!!)
                 }
                 is PeerChatObject -> toId
                 is PeerChannelObject -> toId
+                null -> null
             }
     }
 
@@ -107,62 +84,14 @@ object NewMessage : EventHandler<NewMessage.NewMessageEvent> {
             NewMessageEvent(
                 client,
                 update,
-                message,
-                out,
-                mentioned,
-                mediaUnread,
-                silent,
-                post,
-                fromScheduled,
-                legacy,
-                editHide,
-                id,
-                fromId,
-                toId,
-                fwdFrom,
-                viaBotId,
-                replyToMsgId,
-                date,
-                message.message,
-                media,
-                replyMarkup,
-                entities ?: emptyList(),
-                views,
-                editDate,
-                postAuthor,
-                groupedId,
-                restrictionReason ?: emptyList()
+                message
             )
         }
         is MessageServiceObject -> message.run {
             NewMessageEvent(
                 client,
                 update,
-                message,
-                out,
-                mentioned,
-                mediaUnread,
-                silent,
-                post,
-                false,
-                legacy,
-                false,
-                id,
-                fromId,
-                toId,
-                null,
-                null,
-                replyToMsgId,
-                date,
-                "",
-                null,
-                null,
-                emptyList(),
-                null,
-                null,
-                null,
-                null,
-                emptyList()
+                message
             )
         }
     }
@@ -172,40 +101,17 @@ object EditMessage : EventHandler<EditMessage.EditMessageEvent> {
     data class EditMessageEvent(
         override val client: TelegramClient,
         override val originalUpdate: Update,
-        val originalMessage: MessageType,
-        val out: Boolean,
-        val mentioned: Boolean,
-        val mediaUnread: Boolean,
-        val silent: Boolean,
-        val post: Boolean,
-        val fromScheduled: Boolean,
-        val legacy: Boolean,
-        val editHide: Boolean,
-        val id: Int,
-        val fromId: Int?,
-        val toId: PeerType,
-        val fwdFrom: MessageFwdHeaderType?,
-        val viaBotId: Int?,
-        val replyToMsgId: Int?,
-        val date: Int,
-        val message: String,
-        val media: MessageMediaType?,
-        val replyMarkup: ReplyMarkupType?,
-        val entities: List<MessageEntityType>,
-        val views: Int?,
-        val editDate: Int?,
-        val postAuthor: String?,
-        val groupedId: Long?,
-        val restrictionReason: List<RestrictionReasonType>
+        val message: MessageType
     ) : Event, SenderGetter, ChatGetter {
-        override val senderId: Int? get() = fromId
-        override val chatPeer: PeerType
-            get() = when (toId) {
+        override val senderId: Int? get() = message.fromId
+        override val chatPeer: PeerType?
+            get() = when (val toId = message.toId) {
                 is PeerUserObject -> {
-                    if (out) toId else PeerUserObject(fromId!!)
+                    if (message.out) toId else PeerUserObject(message.fromId!!)
                 }
                 is PeerChatObject -> toId
                 is PeerChannelObject -> toId
+                null -> null
             }
     }
 
@@ -227,62 +133,14 @@ object EditMessage : EventHandler<EditMessage.EditMessageEvent> {
             EditMessageEvent(
                 client,
                 update,
-                message,
-                out,
-                mentioned,
-                mediaUnread,
-                silent,
-                post,
-                fromScheduled,
-                legacy,
-                editHide,
-                id,
-                fromId,
-                toId,
-                fwdFrom,
-                viaBotId,
-                replyToMsgId,
-                date,
-                message.message,
-                media,
-                replyMarkup,
-                entities ?: emptyList(),
-                views,
-                editDate,
-                postAuthor,
-                groupedId,
-                restrictionReason ?: emptyList()
+                message
             )
         }
         is MessageServiceObject -> message.run {
             EditMessageEvent(
                 client,
                 update,
-                message,
-                out,
-                mentioned,
-                mediaUnread,
-                silent,
-                post,
-                false,
-                legacy,
-                false,
-                id,
-                fromId,
-                toId,
-                null,
-                null,
-                replyToMsgId,
-                date,
-                "",
-                null,
-                null,
-                emptyList(),
-                null,
-                null,
-                null,
-                null,
-                emptyList()
+                message
             )
         }
     }

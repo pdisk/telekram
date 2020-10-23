@@ -33,7 +33,6 @@ interface RSAEncoder {
     fun loadPubKey(key: RSAPublicKey)
     fun computeFingerprint(key: RSAPublicKey): Long
     fun encrypt(data: ByteArray, fingerprint: Long): ByteArray?
-    fun decrypt(data: ByteArray, fingerprint: Long): ByteArray?
 }
 
 open class RSAEncoderImpl : RSAEncoder {
@@ -68,10 +67,6 @@ open class RSAEncoderImpl : RSAEncoder {
             return ByteArray(256 - ret.size) { 0 } + ret
         }
         return ret
-    }
-
-    override fun decrypt(data: ByteArray, fingerprint: Long): ByteArray? {
-        TODO("AFAIK this is never used")
     }
 
     companion object : RSAEncoderImpl() {

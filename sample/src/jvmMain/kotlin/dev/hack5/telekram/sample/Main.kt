@@ -73,117 +73,118 @@ fun main(): Unit = runBlocking {
         }
     }*/
     val pendingEdits = mutableMapOf<Pair<PeerType, Int>, CompletableDeferred<EditMessage.EditMessageEvent>>()
-    client.eventCallbacks += {
+    client.eventCallbacks += { event ->
         launch {
             try {
-                when (it) {
+                when (event) {
                     is NewMessage.NewMessageEvent -> {
-                        if (it.out) {
-                            if (it.message == ".ping") {
-                                var update: UpdatesType?
-                                val chat = it.getInputChat()
-                                val editTime = measureNanoTime {
+                        (event.message as? MessageObject)?.let {
+                            if (it.out) {
+                                if (it.message == ".ping") {
+                                    var update: UpdatesType?
+                                    val editTime = measureNanoTime {
+                                        update =
+                                            it.edit(client, message = "Pong")
+                                    }
+                                    val groupedClient = GroupingTelegramClient(client, initialCapacity = 1000)
+                                    val pingTime = measureNanoTime {
+                                        coroutineScope {
+                                            for (i in 0L until 1000L) {
+                                                launch {
+                                                    groupedClient(PingRequest(i))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    println(update)
+                                    val job = CompletableDeferred<EditMessage.EditMessageEvent>()
+                                    pendingEdits[it.toId to it.id] = job
+                                    val dispatchTime = measureNanoTime {
+                                        client.sendUpdate(update!!)
+                                    }
+                                    val edit = job.await()
+                                    val serverTime = edit.message.editDate!! - it.date
                                     update =
-                                        client(Messages_EditMessageRequest(false, chat, it.id, "Pong"))
+                                        client(
+                                            Messages_EditMessageRequest(
+                                                false,
+                                                event.getInputChat()!!,
+                                                it.id,
+                                                "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}ns"
+                                            )
+                                        )
+                                    client.sendUpdate(update!!)
                                 }
-                                val groupedClient = GroupingTelegramClient(client, initialCapacity = 1000)
-                                val pingTime = measureNanoTime {
-                                    coroutineScope {
-                                        for (i in 0L until 1000L) {
-                                            launch {
-                                                groupedClient(PingRequest(i))
+                                if (it.message == ".download") {
+                                    when (val resp = client(Contacts_ResolveUsernameRequest("blank_x"))) {
+                                        is Contacts_ResolvedPeerObject -> {
+                                            val file = File("test.jpg")
+                                            (resp.users[0] as UserObject).downloadProfilePhoto(client).collect { data ->
+                                                file.writeBytes(data)
                                             }
                                         }
                                     }
                                 }
-                                println(update)
-                                val job = CompletableDeferred<EditMessage.EditMessageEvent>()
-                                pendingEdits[it.chatPeer to it.id] = job
-                                val dispatchTime = measureNanoTime {
-                                    client.sendUpdate(update!!)
-                                }
-                                val edit = job.await()
-                                val serverTime = edit.editDate!! - it.date
-                                update =
-                                    client(
-                                        Messages_EditMessageRequest(
-                                            false,
-                                            it.getInputChat(),
-                                            it.id,
-                                            "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}ns"
-                                        )
-                                    )
-                                client.sendUpdate(update!!)
-                            }
-                            if (it.message == ".download") {
-                                when (val resp = client(Contacts_ResolveUsernameRequest("blank_x"))) {
-                                    is Contacts_ResolvedPeerObject -> {
-                                        val file = File("test.jpg")
-                                        (resp.users[0] as UserObject).downloadProfilePhoto(client).collect {
-                                            file.writeBytes(it)
-                                        }
-                                    }
-                                }
-                            }
-                            if (it.message.startsWith(".eval")) {
-                                val engine = ScriptEngineManager().getEngineByExtension("kts")!!
-                                val bindings = engine.getBindings(ScriptContext.ENGINE_SCOPE)
-                                bindings["bootstrap"] =
-                                    EvalDataWrapper(this + SupervisorJob(coroutineContext[Job]), client, it)
-                                engine.context.errorWriter = System.err.writer()
-                                engine.context.writer = System.err.writer()
-                                engine.context.reader = System.`in`.reader()
-                                val input = it.message.substringAfter(" ")
-                                val (header, body) = input.split("###", limit = 2)
-                                val code = """
+                                if (it.message.startsWith(".eval")) {
+                                    val engine = ScriptEngineManager().getEngineByExtension("kts")!!
+                                    val bindings = engine.getBindings(ScriptContext.ENGINE_SCOPE)
+                                    bindings["bootstrap"] =
+                                        EvalDataWrapper(this + SupervisorJob(coroutineContext[Job]), client, event)
+                                    engine.context.errorWriter = System.err.writer()
+                                    engine.context.writer = System.err.writer()
+                                    engine.context.reader = System.`in`.reader()
+                                    val input = it.message.substringAfter(" ")
+                                    val (header, body) = input.split("###", limit = 2)
+                                    val code = """
                                     $header
                                     bootstrap.wrapAsync { client, event ->
                                     $body
                                     }
                                 """.trimIndent()
-                                try {
-                                    val deferred = engine.eval(code) as Deferred<*>
-                                    val output = deferred.await()
-                                    val update =
-                                        client(
-                                            Messages_EditMessageRequest(
-                                                false,
-                                                it.getInputChat(),
-                                                it.id,
-                                                "Input: $input\nOutput: $output"
+                                    try {
+                                        val deferred = engine.eval(code) as Deferred<*>
+                                        val output = deferred.await()
+                                        val update =
+                                            client(
+                                                Messages_EditMessageRequest(
+                                                    false,
+                                                    event.getInputChat()!!,
+                                                    it.id,
+                                                    "Input: $input\nOutput: $output"
+                                                )
                                             )
-                                        )
-                                    client.sendUpdate(update)
-                                } catch (e: Throwable) {
-                                    val update =
-                                        client(
-                                            Messages_EditMessageRequest(
-                                                false,
-                                                it.getInputChat(),
-                                                it.id,
-                                                "Input: $input\nError: ${e.stackTraceToString()}"
+                                        client.sendUpdate(update)
+                                    } catch (e: Throwable) {
+                                        val update =
+                                            client(
+                                                Messages_EditMessageRequest(
+                                                    false,
+                                                    event.getInputChat()!!,
+                                                    it.id,
+                                                    "Input: $input\nError: ${e.stackTraceToString()}"
+                                                )
                                             )
-                                        )
-                                    client.sendUpdate(update)
+                                        client.sendUpdate(update)
+                                    }
                                 }
                             }
-                        }
 
-                        if (!it.out) {
-                            it.toId.let { toId ->
-                                if (toId is PeerChannelObject) {
-                                    client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
-                                } else {
-                                    client(Messages_ReadHistoryRequest(it.getInputChat(), it.id))
+                            if (!it.out) {
+                                it.toId.let { toId ->
+                                    if (toId is PeerChannelObject) {
+                                        client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
+                                    } else {
+                                        client(Messages_ReadHistoryRequest(event.getInputChat()!!, it.id))
+                                    }
                                 }
                             }
                         }
                     }
                     is EditMessage.EditMessageEvent -> {
-                        pendingEdits.remove(it.chatPeer to it.id)?.complete(it)
+                        pendingEdits.remove(event.chatPeer to event.message.id)?.complete(event)
                     }
                     is SkippedUpdate.SkippedUpdateEvent -> {
-                        it.channelId.let { channelId ->
+                        event.channelId.let { channelId ->
                             if (channelId != null) {
                                 client(
                                     Channels_ReadHistoryRequest(
@@ -228,7 +229,7 @@ fun main(): Unit = runBlocking {
                 if (e is CancellationException) throw e
                 Napier.e("error", e)
             } finally {
-                it.originalUpdate?.commit()
+                event.originalUpdate?.commit()
             }
         }
         Unit

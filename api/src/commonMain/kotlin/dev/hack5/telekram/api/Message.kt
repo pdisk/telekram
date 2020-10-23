@@ -20,6 +20,7 @@ package dev.hack5.telekram.api
 
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.tl.*
+import dev.hack5.telekram.core.utils.toInputPeer
 import kotlin.random.Random
 
 val MessageType.date: Int?
@@ -43,6 +44,27 @@ val MessageType.toId: PeerType?
         is MessageServiceObject -> toId
     }
 
+val MessageType.fromId: Int?
+    get() = when (this) {
+        is MessageEmptyObject -> null
+        is MessageObject -> fromId
+        is MessageServiceObject -> fromId
+    }
+
+val MessageType.out: Boolean
+    get() = when (this) {
+        is MessageEmptyObject -> false
+        is MessageObject -> out
+        is MessageServiceObject -> out
+    }
+
+val MessageType.editDate: Int?
+    get() = when (this) {
+        is MessageEmptyObject -> null
+        is MessageObject -> editDate
+        is MessageServiceObject -> null
+    }
+
 suspend fun TelegramClient.getChatId(message: MessageType): Int? = when (message) {
     is MessageEmptyObject -> null
     is MessageObject -> if (getInputMe().userId == message.toId.id) message.fromId else message.toId.id
@@ -55,36 +77,32 @@ suspend fun TelegramClient.sendMessage(
     replyToMsgId: Int? = null,
     clearDraft: Boolean = true,
     sendTime: Int? = null
-) =
+) = message.run {
     if (message.media?.toInputMedia() == null)
-        this(
-            Messages_SendMessageRequest(
-                message.media as? MessageMediaWebPageObject == null,
-                message.silent,
-                false,
-                clearDraft,
-                toPeer,
-                replyToMsgId,
-                message.message,
-                Random.nextLong(),
-                message.replyMarkup,
-                message.entities,
-                sendTime
-            )
+        sendMessage(
+            toPeer,
+            message.message,
+            replyToMsgId,
+            clearDraft,
+            sendTime,
+            message.media as? MessageMediaWebPageObject == null,
+            silent,
+            replyMarkup,
+            entities,
         )
     else
-        this(
-            Messages_SendMediaRequest(
-                message.silent,
-                false,
-                clearDraft,
-                toPeer,
-                replyToMsgId,
-                message.media!!.toInputMedia(),
-                message.message,
-                Random.nextLong()
-            )
+        sendMessage(
+            toPeer,
+            media!!.toInputMedia(),
+            message.message,
+            replyToMsgId,
+            clearDraft,
+            sendTime,
+            silent,
+            replyMarkup,
+            entities
         )
+}
 
 suspend fun TelegramClient.sendMessage(
     toPeer: InputPeerType,
@@ -139,3 +157,70 @@ suspend fun TelegramClient.sendMessage(
             sendTime
         )
     )
+
+suspend fun TelegramClient.editMessage(
+    peer: InputPeerType,
+    id: Int,
+    message: MessageObject
+) = message.run {
+    editMessage(
+        peer,
+        id,
+        message.message,
+        media?.toInputMedia(),
+        date,
+        message.media as? MessageMediaWebPageObject == null,
+        replyMarkup,
+        entities
+    )
+}
+
+suspend fun TelegramClient.editMessage(
+    peer: InputPeerType,
+    id: Int,
+    message: String? = null,
+    media: InputMediaType? = null,
+    sendTime: Int? = null,
+    noWebpage: Boolean = false,
+    replyMarkup: ReplyMarkupType? = null,
+    entities: List<MessageEntityType>? = null
+) = this(
+    Messages_EditMessageRequest(
+        noWebpage,
+        peer,
+        id,
+        message,
+        media,
+        replyMarkup,
+        entities,
+        sendTime
+    )
+)
+
+suspend fun MessageObject.edit(
+    client: TelegramClient,
+    message: MessageObject
+) = client.editMessage(
+    toId.toInputPeer(client),
+    id,
+    message
+)
+
+suspend fun MessageObject.edit(
+    client: TelegramClient,
+    message: String? = null,
+    media: InputMediaType? = null,
+    sendTime: Int? = null,
+    noWebpage: Boolean = false,
+    replyMarkup: ReplyMarkupType? = null,
+    entities: List<MessageEntityType>? = null
+) = client.editMessage(
+    toId.toInputPeer(client),
+    id,
+    message,
+    media,
+    sendTime,
+    noWebpage,
+    replyMarkup,
+    entities
+)
