@@ -1,0 +1,1 @@
+include: 'https://gitlab.com/hackintosh5/ci-templates/-/raw/master/gradle.gitlab-ci.yml'

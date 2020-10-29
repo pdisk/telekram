@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.konan.properties.loadProperties
+
 /*
  *     This file is part of Telekram (Telegram MTProto client library)
  *     Copyright (C) 2020 Hackintosh Five
@@ -19,7 +21,7 @@
 plugins {
     kotlin("multiplatform")
     id("org.jetbrains.dokka") version "0.10.0"
-    `maven-publish`
+    id("maven-publish")
 }
 
 group = "dev.hack5.telekram"
@@ -28,7 +30,6 @@ version = "0.0.1-SNAPSHOT"
 repositories {
     mavenCentral()
     jcenter()
-    mavenLocal()
     maven(url = "https://jitpack.io")
 }
 
@@ -76,6 +77,19 @@ val dokkaJar by tasks.creating(Jar::class) {
 
 publishing {
     repositories {
-        mavenLocal()
+        try {
+            val props = loadProperties(rootProject.file("deploy.properties").absolutePath)
+            println(props)
+            maven {
+                url = uri(props.getProperty("url")!!)
+                name = "GitLab"
+                credentials(HttpHeaderCredentials::class) {
+                    name = "Job-Token"
+                    value = props.getProperty("token")!!
+                }
+            }
+        } catch (e: NoSuchFileException) {
+            mavenLocal()
+        }
     }
 }
