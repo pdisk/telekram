@@ -103,11 +103,8 @@ publishing {
             if (System.getenv("CI_API_V4_URL") != null) {
                 maven {
                     url =
-                        uri(System.getenv("CI_API_V4_URL") + "/")
-                            .resolve("projects")
-                            .resolve(System.getenv("CI_PROJECT_ID"))
-                            .resolve("packages")
-                            .resolve("maven")
+                        uri("${System.getenv("CI_API_V4_URL")}/projects/" +
+                                "${System.getenv("CI_PROJECT_ID")}/packages/maven")
                     name = "GitLab"
                     credentials(HttpHeaderCredentials::class) {
                         name = "Job-Token"
