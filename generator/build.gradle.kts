@@ -24,6 +24,9 @@ plugins {
     application
 }
 
+group = (rootProject.group as String) + ".generator"
+version = rootProject.version
+
 repositories {
     mavenCentral()
     jcenter()

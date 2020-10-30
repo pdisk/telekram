@@ -24,8 +24,8 @@ plugins {
     id("maven-publish")
 }
 
-group = "dev.hack5.telekram"
-version = "0.0.1-SNAPSHOT"
+group = (rootProject.group as String) + ".api"
+version = rootProject.version
 
 repositories {
     mavenCentral()

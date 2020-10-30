@@ -21,6 +21,9 @@ plugins {
     application
 }
 
+group = (rootProject.group as String) + ".sample"
+version = rootProject.version
+
 repositories {
     mavenCentral()
     jcenter()

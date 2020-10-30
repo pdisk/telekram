@@ -24,13 +24,14 @@ buildscript {
 
 plugins {
     kotlin("multiplatform") version "1.4.0"
+    id("com.palantir.git-version") version "0.12.3"
 }
 kotlin {
     jvm()
 }
 
 group = "dev.hack5.telekram"
-version = "0.0.1-SNAPSHOT"
+version = (ext["gitVersion"] as groovy.lang.Closure<*>)() as String
 
 repositories {
     jcenter()
