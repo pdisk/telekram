@@ -62,17 +62,20 @@ kotlin {
         }
         val commonTest by getting {
             dependencies {
+                kotlin("test")
             }
         }
-        jvm().compilations["main"].defaultSourceSet {
+        val jvmMain by getting {
             dependencies {
                 implementation("io.ktor:ktor-network:$ktorVersion")
                 implementation("org.bouncycastle:bcprov-jdk15on:$bouncyCastleVersion")
                 implementation("org.bouncycastle:bcpkix-jdk15on:$bouncyCastleVersion")
             }
         }
-        jvm().compilations["test"].defaultSourceSet {
+        val jvmTest by getting {
             dependencies {
+                implementation(kotlin("test"))
+                implementation(kotlin("test-junit"))
             }
         }
     }

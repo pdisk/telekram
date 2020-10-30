@@ -42,11 +42,15 @@ kotlin {
             dependencies {
             }
         }
-        jvm().compilations["main"].defaultSourceSet {
+        val jvmMain by getting {
             dependencies {
             }
         }
-        jvm().compilations["test"].defaultSourceSet {
+        val jvmTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(kotlin("test-junit"))
+            }
         }
     }
 }
