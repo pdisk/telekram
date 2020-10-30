@@ -78,14 +78,26 @@ val dokkaJar by tasks.creating(Jar::class) {
 publishing {
     repositories {
         try {
-            val props = loadProperties(rootProject.file("deploy.properties").absolutePath)
-            println(props)
-            maven {
-                url = uri(props.getProperty("url")!!)
-                name = "GitLab"
-                credentials(HttpHeaderCredentials::class) {
-                    name = "Job-Token"
-                    value = props.getProperty("token")!!
+            if (System.getenv("CI_API_V4_URL") != null) {
+                maven {
+                    println(
+                        uri(System.getenv("CI_API_V4_URL")).resolve("projects").resolve(System.getenv("CI_PROJECT_ID"))
+                            .resolve("packages").resolve("maven")
+                    )
+                    url =
+                        uri(System.getenv("CI_API_V4_URL"))
+                            .resolve("projects")
+                            .resolve(System.getenv("CI_PROJECT_ID"))
+                            .resolve("packages")
+                            .resolve("maven")
+                    name = "GitLab"
+                    credentials(HttpHeaderCredentials::class) {
+                        name = "Job-Token"
+                        value = System.getenv("CI_JOB_TOKEN")
+                    }
+                    authentication {
+                        register("GitLab", HttpHeaderAuthentication::class.java)
+                    }
                 }
             }
         } catch (e: NoSuchFileException) {
