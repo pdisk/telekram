@@ -21,7 +21,7 @@ plugins {
     application
 }
 
-group = (rootProject.group as String) + ".sample"
+group = rootProject.group
 version = rootProject.version
 
 repositories {

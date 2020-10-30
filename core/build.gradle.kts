@@ -25,7 +25,7 @@ plugins {
     `maven-publish`
 }
 
-group = (rootProject.group as String) + ".core"
+group = rootProject.group
 version = rootProject.version
 
 repositories {

@@ -24,7 +24,7 @@ plugins {
     id("maven-publish")
 }
 
-group = (rootProject.group as String) + ".api"
+group = rootProject.group
 version = rootProject.version
 
 repositories {

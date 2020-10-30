@@ -24,7 +24,7 @@ plugins {
     application
 }
 
-group = (rootProject.group as String) + ".generator"
+group = rootProject.group
 version = rootProject.version
 
 repositories {
