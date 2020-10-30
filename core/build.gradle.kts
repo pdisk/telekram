@@ -99,12 +99,8 @@ publishing {
         try {
             if (System.getenv("CI_API_V4_URL") != null) {
                 maven {
-                    println(
-                        uri(System.getenv("CI_API_V4_URL")).resolve("projects").resolve(System.getenv("CI_PROJECT_ID"))
-                            .resolve("packages").resolve("maven")
-                    )
                     url =
-                        uri(System.getenv("CI_API_V4_URL"))
+                        uri(System.getenv("CI_API_V4_URL") + "/")
                             .resolve("projects")
                             .resolve(System.getenv("CI_PROJECT_ID"))
                             .resolve("packages")
