@@ -37,7 +37,7 @@ import dev.hack5.telekram.core.updates.UpdateOrSkipped
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.channels.Channel
-
+// TODO use delegation
 open class TelegramClientApiImpl(
     apiId: String, apiHash: String,
     parentScope: CoroutineScope = GlobalScope,

@@ -32,7 +32,7 @@ suspend fun TelegramClient.getMessages(
     limit: Int? = null,
     reverse: Boolean = false,
     lastId: Int? = null
-) = iter<MessageType, Pair<Int, Int?>> {
+) = iter<MessageType, Pair<Int, Int?>?>(null) {
     var (offsetId, remainingCount) = it ?: Pair(firstId ?: 0, limit)
     var addOffset = skipCount ?: 0
     val offsetDate = if (it == null) beforeDate ?: 0 else 0

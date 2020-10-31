@@ -29,7 +29,7 @@ suspend fun TelegramClient.getDialogs(
     excludePinned: Boolean = false,
     folderId: Int? = null
 ) =
-    iter<Dialog, Triple<Int, Int, InputPeerType>> { input ->
+    iter<Dialog, Triple<Int, Int, InputPeerType>?>(null) { input ->
         when (val dialogs = this(
             Messages_GetDialogsRequest(
                 excludePinned, folderId, input?.first ?: offsetDate, input?.second ?: offsetId,

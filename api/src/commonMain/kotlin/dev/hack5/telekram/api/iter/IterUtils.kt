@@ -19,13 +19,13 @@
 package dev.hack5.telekram.api.iter
 
 import com.github.aakira.napier.Napier
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.*
 
-suspend inline fun <R, O> iter(crossinline function: suspend (O?) -> Pair<Collection<R>, O?>) = flow {
-    var lastOutput = function(null)
+internal suspend inline fun <R, O> iter(initialValue: O, crossinline function: suspend (O) -> Pair<Collection<R>, O>) = flow {
+    var lastOutput = function(initialValue)
     while (lastOutput.second != null) {
         if (lastOutput.first.isEmpty() && lastOutput.second != null)
-            Napier.w("iter function returned empty collection", tag = "IterTools")
+            Napier.w("iter function returned empty collection", tag = tag)
         else
             lastOutput.first.forEach { emit(it) }
         if (lastOutput.second == null) break
@@ -33,5 +33,36 @@ suspend inline fun <R, O> iter(crossinline function: suspend (O?) -> Pair<Collec
     }
 }
 
-// private const val tag = "IterTools"
-// This is inlined manually, because inline functions can't access private vals
+
+abstract class RandomAccessIter<I : Comparable<I>, R, O> {
+    open suspend fun get(range: ClosedRange<I>): Flow<Pair<ClosedRange<I>, R>> =
+        iter(getInitialParameters(range.start, range.endInclusive), ::get)
+            .dropWhile { it.first.endInclusive < range.start }
+            .takeWhile { it.first.start <= range.endInclusive }
+
+
+    abstract suspend fun get(data: O): Pair<Collection<Pair<ClosedRange<I>, R>>, O>
+    abstract suspend fun getInitialParameters(start: I, endInclusive: I?): O
+}
+
+abstract class RandomAccessBulkIter<I : Comparable<I>, R, O> : RandomAccessIter<I, Collection<R>, O>() {
+    override suspend fun get(range: ClosedRange<I>): Flow<Pair<ClosedRange<I>, Collection<R>>> = super.get(range).map {
+        when {
+            it.first.start < range.start && it.first.endInclusive >= range.start -> {
+                // edge case: chunk starts before start of target range, but ends after start of target range
+                // remove unwanted elements
+                it.first.start .. range.endInclusive to it.second.drop(it.second.size - (subtractIndices(range.start, it.first.endInclusive) - 1))
+            }
+            it.first.endInclusive > range.endInclusive && it.first.start <= range.endInclusive -> {
+                // edge case: chunk ends after end of target range, but starts before end of target range
+                // remove unwanted elements
+                range.start .. it.first.endInclusive to it.second.take(subtractIndices(it.first.start, range.endInclusive) + 1)
+            }
+            else -> it
+        }
+    }
+
+    abstract fun subtractIndices(left: I, right: I): Int
+}
+
+private const val tag = "IterTools"
