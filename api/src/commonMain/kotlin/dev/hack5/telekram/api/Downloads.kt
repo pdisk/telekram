@@ -19,16 +19,11 @@
 package dev.hack5.telekram.api
 
 import dev.hack5.telekram.api.iter.RandomAccessBulkIter
-import dev.hack5.telekram.api.iter.iter
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.exports.exportDC
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.toInputPeer
 import dev.hack5.telekram.core.utils.toInputUser
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.onCompletion
-import kotlin.math.exp
 
 suspend fun UserObject.downloadProfilePhoto(client: TelegramClient): DownloadIter {
     photo.let {
@@ -36,15 +31,20 @@ suspend fun UserObject.downloadProfilePhoto(client: TelegramClient): DownloadIte
             is UserProfilePhotoEmptyObject -> TODO()
             is UserProfilePhotoObject -> {
                 val photo = it.photoBig as FileLocationToBeDeprecatedObject
-                val ref = InputPeerPhotoFileLocationObject(true, toInputUser(client).toInputPeer(), photo.volumeId, photo.localId)
-                return client.getFile(ref, 4096, it.dcId)
+                val ref = InputPeerPhotoFileLocationObject(
+                    true,
+                    toInputUser(client).toInputPeer(),
+                    photo.volumeId,
+                    photo.localId
+                )
+                return client.getFile(ref, it.dcId)
             }
             null -> TODO()
         }
     }
 }
 
-suspend fun TelegramClient.getFile(location: InputFileLocationType, partSize: Int, dcId: Int): DownloadIter {
+suspend fun TelegramClient.getFile(location: InputFileLocationType, dcId: Int): DownloadIter {
     val exported = exportDC(dcId, null, null)
     return DownloadIter(exported, { location }, false)
 }
@@ -52,12 +52,21 @@ suspend fun TelegramClient.getFile(location: InputFileLocationType, partSize: In
 class DownloadIter(val exportedClient: TelegramClient, val fileRefGetter: () -> InputFileLocationType, val precise: Boolean, val defaultChunkSize: Int = 65536) : RandomAccessBulkIter<Int, Byte, Data>() {
     protected var fileRef = fileRefGetter()
 
-    override suspend fun get(data: Data): Pair<Collection<Pair<ClosedRange<Int>, Collection<Byte>>>, Data> {
-        val result = exportedClient(Upload_GetFileRequest(precise, false /* TODO */, fileRef, data.first,
-            data.third ?: data.second
-        )) as Upload_FileObject
-        val range = data.first .. (data.first + result.bytes.size)
-        return listOf(range to result.bytes.asList()) to Triple(range.last + 1, data.second, null)
+    override suspend fun get(data: Data): Pair<Collection<Pair<ClosedRange<Int>, Collection<Byte>>>, Data?> {
+        val limit = data.third ?: data.second
+        val result = exportedClient(
+            Upload_GetFileRequest(
+                precise,
+                false /* TODO */,
+                fileRef,
+                data.first,
+                limit
+            )
+        ) as Upload_FileObject
+        val range = data.first until (data.first + result.bytes.size)
+        println("Requested $data, got $range")
+        val newData = if (limit == result.bytes.size) Triple(range.last + 1, data.second, null) else null
+        return listOf(range to result.bytes.asList()) to newData
     }
 
     override suspend fun getInitialParameters(start: Int, endInclusive: Int?): Data {
@@ -91,6 +100,8 @@ class DownloadIter(val exportedClient: TelegramClient, val fileRefGetter: () -> 
     }
 
     override fun subtractIndices(left: Int, right: Int) = left - right
+
+    override val defaultOffset = 0
 }
 
 private typealias Data = Triple<Int, Int, Int?>

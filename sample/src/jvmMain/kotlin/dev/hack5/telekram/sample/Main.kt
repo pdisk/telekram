@@ -32,6 +32,7 @@ import dev.hack5.telekram.core.utils.toInputPeer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
+import java.io.FileOutputStream
 import javax.script.ScriptContext
 import javax.script.ScriptEngineManager
 import kotlin.system.measureNanoTime
@@ -119,9 +120,17 @@ fun main(): Unit = runBlocking {
                                     when (val resp = client(Contacts_ResolveUsernameRequest("blank_x"))) {
                                         is Contacts_ResolvedPeerObject -> {
                                             val file = File("test.jpg")
-                                            (resp.users[0] as UserObject).downloadProfilePhoto(client).collect { data ->
-                                                file.writeBytes(data)
+                                            val fos = withContext(Dispatchers.IO) {
+                                                @Suppress("BlockingMethodInNonBlockingContext")
+                                                FileOutputStream(file)
                                             }
+                                            (resp.users[0] as UserObject).downloadProfilePhoto(client).get()
+                                                .collect { data ->
+                                                    withContext(Dispatchers.IO) {
+                                                        @Suppress("BlockingMethodInNonBlockingContext")
+                                                        fos.write(data.second.toByteArray())
+                                                    }
+                                                }
                                         }
                                     }
                                 }

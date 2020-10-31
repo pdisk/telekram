@@ -455,7 +455,6 @@ open class TelegramClientCoreImpl(
             delay(seconds.toLong())
             sendAndUnpack(request, skipEntities, forUpdate, packer)
         }
-        Napier.d("Got response $ret", tag = tag)
         if (!skipEntities) {
             updatesHandler?.getEntities(ret, forUpdate)?.let {
                 session.addEntities(it)

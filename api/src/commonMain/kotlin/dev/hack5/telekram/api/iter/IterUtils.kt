@@ -21,28 +21,35 @@ package dev.hack5.telekram.api.iter
 import com.github.aakira.napier.Napier
 import kotlinx.coroutines.flow.*
 
-internal suspend inline fun <R, O> iter(initialValue: O, crossinline function: suspend (O) -> Pair<Collection<R>, O>) = flow {
-    var lastOutput = function(initialValue)
-    while (lastOutput.second != null) {
-        if (lastOutput.first.isEmpty() && lastOutput.second != null)
-            Napier.w("iter function returned empty collection", tag = tag)
-        else
-            lastOutput.first.forEach { emit(it) }
-        if (lastOutput.second == null) break
-        lastOutput = function(lastOutput.second)
+internal suspend inline fun <R, O> iter(initialValue: O, crossinline function: suspend (O) -> Pair<Collection<R>, O?>) =
+    flow {
+        var lastOutput = function(initialValue)
+        while (true) {
+            if (lastOutput.first.isEmpty() && lastOutput.second != null)
+                Napier.w("iter function returned empty collection", tag = tag)
+            else
+                lastOutput.first.forEach { emit(it) }
+            if (lastOutput.second == null) break
+            lastOutput = function(lastOutput.second!!)
+        }
     }
-}
 
 
 abstract class RandomAccessIter<I : Comparable<I>, R, O> {
     open suspend fun get(range: ClosedRange<I>): Flow<Pair<ClosedRange<I>, R>> =
-        iter(getInitialParameters(range.start, range.endInclusive), ::get)
+        iter(getInitialParameters(range.start, range.endInclusive))
             .dropWhile { it.first.endInclusive < range.start }
             .takeWhile { it.first.start <= range.endInclusive }
 
+    suspend fun get(offset: I? = null): Flow<Pair<ClosedRange<I>, R>> =
+        iter(getInitialParameters(offset ?: defaultOffset, null))
 
-    abstract suspend fun get(data: O): Pair<Collection<Pair<ClosedRange<I>, R>>, O>
+    suspend fun iter(data: O) = iter(data, ::get)
+
+
+    abstract suspend fun get(data: O): Pair<Collection<Pair<ClosedRange<I>, R>>, O?>
     abstract suspend fun getInitialParameters(start: I, endInclusive: I?): O
+    abstract val defaultOffset: I
 }
 
 abstract class RandomAccessBulkIter<I : Comparable<I>, R, O> : RandomAccessIter<I, Collection<R>, O>() {

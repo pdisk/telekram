@@ -20,6 +20,7 @@
 
 package dev.hack5.telekram.core.exports
 
+import com.github.aakira.napier.Napier
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.state.MTProtoStateImpl
 import dev.hack5.telekram.core.state.MemorySession
@@ -27,6 +28,7 @@ import dev.hack5.telekram.core.tl.Auth_ExportAuthorizationRequest
 import dev.hack5.telekram.core.tl.Auth_ExportedAuthorizationObject
 import dev.hack5.telekram.core.tl.Auth_ImportAuthorizationRequest
 import dev.hack5.telekram.core.tl.DcOptionObject
+import kotlinx.coroutines.CancellationException
 
 suspend inline fun TelegramClient.exportDC(dc: Int, cdn: Boolean?, mediaOnly: Boolean?, crossinline block: suspend (TelegramClient) -> Unit) {
     /*
@@ -58,7 +60,16 @@ suspend fun TelegramClient.getExportSession(dc: Int, cdn: Boolean?, mediaOnly: B
     }
     require(options.isNotEmpty()) { "Unable to get DC options for $dc (cdn=$cdn, mediaOnly=$mediaOnly, all=${serverConfig.value!!.dcOptions})" }
     val auth = this(Auth_ExportAuthorizationRequest(dc)) as Auth_ExportedAuthorizationObject
-    val option = options.random()
-    println("connecting to $option with $auth")
-    return Triple(MemorySession(dc, option.ipAddress, option.port, MTProtoStateImpl()), auth, option.cdn)
+    var lastException: Exception? = null
+    for (option in options) {
+        println("connecting to $option")
+        try {
+            return Triple(MemorySession(dc, option.ipAddress, option.port, MTProtoStateImpl()), auth, option.cdn)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Napier.w("Connection to $option failed")
+            lastException = e
+        }
+    }
+    throw lastException!!
 }
