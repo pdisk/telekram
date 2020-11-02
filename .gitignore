@@ -104,3 +104,6 @@ generator/build
 # Session files for testing
 **/telekram.json
 **/apiToken
+
+# High churn files
+.idea/artifacts/*

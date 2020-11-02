@@ -22,78 +22,33 @@ import kotlinx.serialization.json.Json
 import java.io.BufferedWriter
 import java.io.File
 
-private val DEFAULT_JSON = Json {
-    ignoreUnknownKeys = true
-}
 
 @ExperimentalUnsignedTypes
-fun parseAndSave(inputPath: String, outputDir: String, packageName: String, json: Json = DEFAULT_JSON) {
+fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
     val inputFile = File(inputPath)
-    val data = json.decodeFromString(TLData.serializer(), inputFile.readText())
-    var file: File
-    var bufferedWriter: BufferedWriter? = null
-    var writer: KtWriter
-    val typeToObjects = data.types.distinct().associateWith { emptyList<TLConstructor>() } +
-            data.constructors.filter { !it.name.contains(" ") && !it.name.contains("<") }.groupBy { it.type }
-    for (method in data.methods) {
-        writer = NormalKtWriter({ bufferedWriter!!.write(it) }, method, packageName)
-        file = File("$outputDir/${writer.tlName}Request.kt")
-        if (" " in writer.tlName || "<" in writer.tlName)
-            continue
-        file.parentFile.mkdirs()
-        bufferedWriter = file.bufferedWriter()
-        writer.writeHeader()
-        writer.writeImports()
-        writer.build()
-        bufferedWriter.close()
-    }
-    for (typeAndObjects in typeToObjects) {
-        val tmp = mutableListOf<String>()
-        writer = TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName, typeAndObjects.value)
-        file = File("$outputDir/${writer.tlName}Type.kt")
-/*        if (" " in writer.tlName || "<" in writer.tlName)
-            continue*/
-        file.parentFile.mkdirs()
-        bufferedWriter = file.bufferedWriter()
-        writer.writeHeader()
-        writer.writeImports()
-        for (constructor in typeAndObjects.value) {
-            NormalKtWriter({ tmp += it }, constructor, packageName).writeImports()
-        }
-        tmp.distinct().forEach { bufferedWriter!!.write(it) }
-        TypeKtWriter({ tmp += it }, typeAndObjects.key, packageName, typeAndObjects.value).build()
-        typeAndObjects.value.forEach { constructor ->
-            NormalKtWriter({ bufferedWriter!!.write(it) }, constructor, packageName).build()
-        }
-        TypeKtWriter({ bufferedWriter!!.write(it) }, typeAndObjects.key, packageName, typeAndObjects.value).build()
-
-        bufferedWriter.close()
-    }
-    file = File("$outputDir/TlMappings.kt")
-    bufferedWriter = file.bufferedWriter()
-    MapKtWriter({ bufferedWriter.write(it) }, data, packageName).build()
-    bufferedWriter.close()
+    val inputData = inputFile.readText()
+    println(TLData(inputData))
 }
 
 fun writeErrors(input: String, outputPath: String, packageName: String) {
     val file = File(outputPath)
     file.parentFile.mkdirs()
     val writer = file.bufferedWriter()
-    ErrorsWriter({ writer.write(it) }, packageName, File(input).readLines().drop(1).map { Error(it) }).build()
+    //ErrorsWriter({ writer.write(it) }, packageName, File(input).readLines().drop(1).map { Error(it) }).build()
     writer.close()
 }
 
 @ExperimentalUnsignedTypes
 fun main() {
     parseAndSave(
-        "resources/schema.json",
-        "../core/generated/commonMain/dev/hack5/telekram/core/tl",
-        "dev.hack5.telekram.core.tl"
-    )
-    parseAndSave(
-        "resources/schema-mtproto.json",
+        "resources/schema-mtproto.tl",
         "../core/generated/commonMain/dev/hack5/telekram/core/mtproto",
         "dev.hack5.telekram.core.mtproto"
+    )
+    parseAndSave(
+        "resources/schema.tl",
+        "../core/generated/commonMain/dev/hack5/telekram/core/tl",
+        "dev.hack5.telekram.core.tl"
     )
     writeErrors(
         "resources/errors.csv",

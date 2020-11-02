@@ -37,20 +37,30 @@ suspend fun UserObject.downloadProfilePhoto(client: TelegramClient): DownloadIte
                     photo.volumeId,
                     photo.localId
                 )
-                return client.getFile(ref, it.dcId)
+                return client.getFile({ ref }, it.dcId)
             }
             null -> TODO()
         }
     }
 }
 
-suspend fun TelegramClient.getFile(location: InputFileLocationType, dcId: Int): DownloadIter {
-    val exported = exportDC(dcId, null, null)
-    return DownloadIter(exported, { location }, false)
+suspend fun DocumentType.download(client: TelegramClient): DownloadIter {
+    when (this) {
+        is DocumentEmptyObject -> TODO()
+        is DocumentObject -> {
+            val ref = InputDocumentFileLocationObject(id, accessHash, fileReference, "")
+            return client.getFile({ ref }, dcId)
+        }
+    }
 }
 
-class DownloadIter(val exportedClient: TelegramClient, val fileRefGetter: () -> InputFileLocationType, val precise: Boolean, val defaultChunkSize: Int = 65536) : RandomAccessBulkIter<Int, Byte, Data>() {
-    protected var fileRef = fileRefGetter()
+suspend fun TelegramClient.getFile(fileRefGetter: () -> InputFileLocationType, dcId: Int): DownloadIter {
+    val exported = exportDC(dcId, null, null)
+    return DownloadIter(exported, fileRefGetter, false)
+}
+
+class DownloadIter(val exportedClient: TelegramClient, val fileRefGetter: () -> InputFileLocationType, val precise: Boolean, private val defaultChunkSize: Int = 65536) : RandomAccessBulkIter<Int, Byte, Data>() {
+    private var fileRef = fileRefGetter()
 
     override suspend fun get(data: Data): Pair<Collection<Pair<ClosedRange<Int>, Collection<Byte>>>, Data?> {
         val limit = data.third ?: data.second
@@ -65,6 +75,7 @@ class DownloadIter(val exportedClient: TelegramClient, val fileRefGetter: () -> 
         ) as Upload_FileObject
         val range = data.first until (data.first + result.bytes.size)
         println("Requested $data, got $range")
+        // TODO: verify hashes
         val newData = if (limit == result.bytes.size) Triple(range.last + 1, data.second, null) else null
         return listOf(range to result.bytes.asList()) to newData
     }

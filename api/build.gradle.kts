@@ -35,6 +35,7 @@ repositories {
 
 val coroutinesVersion = "1.4.0-M1"
 val napierVersion = "1.4.0"
+val kryptoVersion = "1.12.0"
 
 kotlin {
     jvm()
@@ -45,6 +46,7 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
                 implementation("com.github.aakira:napier:$napierVersion")
+                implementation("com.soywiz.korlibs.krypto:krypto:$kryptoVersion")
                 api(project(":core"))
             }
         }

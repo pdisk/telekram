@@ -117,6 +117,26 @@ fun main(): Unit = runBlocking {
                                     client.sendUpdate(update!!)
                                 }
                                 if (it.message == ".download") {
+                                    if (it.replyToMsgId != null) {
+                                        val msgs =
+                                            client(Messages_GetMessagesRequest(listOf(InputMessageIDObject(it.replyToMsgId!!))))
+                                        msgs as Messages_MessagesObject
+                                        val reply = msgs.messages[0] as MessageObject
+                                        val media = reply.media as MessageMediaDocumentObject
+                                        val file = File("test_small_downloaded.bin")
+                                        val fos = withContext(Dispatchers.IO) {
+                                            @Suppress("BlockingMethodInNonBlockingContext")
+                                            FileOutputStream(file)
+                                        }
+                                        media.document!!.download(client).get().collect { data ->
+                                            withContext(Dispatchers.IO) {
+                                                @Suppress("BlockingMethodInNonBlockingContext")
+                                                fos.write(data.second.toByteArray())
+                                            }
+                                        }
+                                    }
+                                }
+                                if (it.message == ".pfp") {
                                     when (val resp = client(Contacts_ResolveUsernameRequest("blank_x"))) {
                                         is Contacts_ResolvedPeerObject -> {
                                             val file = File("test.jpg")
