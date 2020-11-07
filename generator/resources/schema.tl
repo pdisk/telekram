@@ -1,3 +1,9 @@
+int ? = Int;
+long ? = Long;
+double ? = Double;
+string ? = String;
+bytes bytes:string = Bytes;
+
 boolFalse#bc799737 = Bool;
 boolTrue#997275b5 = Bool;
 

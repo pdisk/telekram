@@ -18,17 +18,60 @@
 
 package dev.hack5.telekram.generator
 
-import kotlinx.serialization.json.Json
-import java.io.BufferedWriter
+import com.squareup.kotlinpoet.NameAllocator
+import dev.hack5.telekram.generator.generator.generateRequest
+import dev.hack5.telekram.generator.parser.Combinator
+import kotlinx.ast.common.*
+import kotlinx.ast.common.ast.AstNode
+import kotlinx.ast.parser.antlr.kotlin.AntlrKotlinParserExtractor
+import kotlinx.ast.parser.antlr.kotlin.antlrKotlinParser
+import org.antlr.v4.kotlinruntime.tree.ParseTree
+import dev.hack5.telekram.generator.parser.Declaration
+import tk.hack5.telekram.generator.tl.TLLexer
+import tk.hack5.telekram.generator.tl.TLParser
 import java.io.File
+
+
+@Suppress("EnumEntryName")
+enum class TLParserType : AstParserType{
+    tl_file,
+    tl_program,
+    declaration
+}
+
+
+object TLParserExtractor: AntlrKotlinParserExtractor<TLParser, TLParserType> {
+    override fun extractor(type: TLParserType): (TLParser) -> ParseTree {
+        return when (type) {
+            TLParserType.tl_file -> TLParser::tl_file
+            TLParserType.tl_program -> TLParser::tl_program
+            TLParserType.declaration -> TLParser::declaration
+        }
+    }
+}
 
 
 @ExperimentalUnsignedTypes
 fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
-    val inputFile = File(inputPath)
-    val inputData = inputFile.readText()
-    println(TLData(inputData))
+    val source = AstSource.File(inputPath)
+
+    val ast = antlrKotlinParser(source, TLParserExtractor, TLParserType.tl_file, ::TLLexer, ::TLParser) as AstNode
+    ast.flatten("constr_declarations").flatten("declaration").forEach {
+        val decl = Declaration(it)
+        println("constr")
+        println(decl.toString(true))
+    }
+    ast.flatten("fun_declarations").flatten("declaration").forEach {
+        val decl = Declaration(it)
+        println("fun")
+        println(decl.toString(true))
+        println((decl as? Combinator)?.let { comb ->
+            generateRequest(comb, NameAllocator())
+        })
+    }
 }
+
+
 
 fun writeErrors(input: String, outputPath: String, packageName: String) {
     val file = File(outputPath)
@@ -45,6 +88,7 @@ fun main() {
         "../core/generated/commonMain/dev/hack5/telekram/core/mtproto",
         "dev.hack5.telekram.core.mtproto"
     )
+    println("===========")
     parseAndSave(
         "resources/schema.tl",
         "../core/generated/commonMain/dev/hack5/telekram/core/tl",

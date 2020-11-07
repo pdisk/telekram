@@ -4,8 +4,12 @@
     <bytecodeTargetLevel target="11">
       <module name="telekram.api.jvmMain~1" target="1.6" />
       <module name="telekram.api.jvmTest~1" target="1.6" />
+      <module name="telekram.commonMain" target="1.6" />
+      <module name="telekram.commonTest" target="1.6" />
       <module name="telekram.core.jvmMain~1" target="1.6" />
       <module name="telekram.core.jvmTest~1" target="1.6" />
+      <module name="telekram.jvmMain" target="1.6" />
+      <module name="telekram.jvmTest" target="1.6" />
     </bytecodeTargetLevel>
   </component>
 </project>

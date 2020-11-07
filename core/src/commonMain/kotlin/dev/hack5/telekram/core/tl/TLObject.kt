@@ -20,68 +20,44 @@
 
 package dev.hack5.telekram.core.tl
 
-interface TLObject<N> {
-    val bare: Boolean
-    fun _toTlRepr(): IntArray
-    @Suppress("EXPERIMENTAL_API_USAGE") // @UseExperimental is experimental itself
-    // and the -Xuse-experimental doesn't work properly
-    fun toTlRepr(): IntArray = if (!bare) intArrayOf(
-        _id ?: error("Boxed serialization not possible on bare types")
-    ) + _toTlRepr() else _toTlRepr()
+interface TLObject {
+    fun toTlRepr(buffer: Buffer, bare: Boolean)
 
-    fun asTlObject() = this
-    val native: N
-
-    /*
-    Sample implementation:
-    @ExperimentalUnsignedTypes
-    override val _id: UInt?
-        get() = Companion._id
-    If you don't use a getter, it crashes with an obscure ClassCastException. No idea why.
-     */
-    val _id: Int?
-
-    val fields: Map<String, TLObject<*>?>
+    val fields: Map<String, TLObject?>
 }
 
-interface TLConstructor<T : TLObject<*>> {
-    fun _fromTlRepr(data: IntArray, offset: Int = 0): Pair<Int, T>?
-    @Suppress("EXPERIMENTAL_API_USAGE") // @UseExperimental is experimental itself
-                                                // and the -Xuse-experimental doesn't work properly
-    fun fromTlRepr(data: IntArray, bare: Boolean = false, offset: Int = 0): Pair<Int, T>? {
-        // the Int is the count of bytes consumed, for Vectors
-        if (!bare && id != null) {
-            if (data[offset] != id)
-                return null
-            return _fromTlRepr(data, offset + 1)?.let {
-                it.first + 1 to it.second
-            }
-        } else return _fromTlRepr(data, offset)
-    }
+interface TLConstructor<T : TLObject> {
+    fun fromTlRepr(data: Buffer, bare: Boolean)
 
     val id: Int?
 }
 
-interface TLTypeConstructor<T : TLObject<*>> : TLConstructor<T> {
+interface TLTypeConstructor<T : TLObject> : TLConstructor<T> {
     @Suppress("ImplicitNullableNothingType")
-    override val id get() = null
+    override val id: Int? get() = null
 
     val constructors: Map<Int, TLConstructor<out T>>
-
-    override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, T>? {
-        val constructor = constructors[data[offset]] ?: error("Attempting to deserialize unrecognized datatype (data=${data.contentToString()}, offset=$offset, constructors=$constructors)")
-        return constructor.fromTlRepr(data, true, offset + 1)?.let {
-            it.first + 1 to it.second
-        }
-    }
 }
 
-interface TLMethod<R : TLObject<*>> :
-    TLObject<TLMethod<R>> {
-    override val _id: Int
-
+interface TLFunction<R : TLObject> : TLObject {
     val constructor: TLConstructor<R>
 
     @Suppress("UNCHECKED_CAST")
-    fun castResult(result: TLObject<Any?>) = result as R
+    fun castResult(result: TLObject) = result as R
+}
+
+interface Buffer {
+    val offset: Int
+    val length: Int
+    fun readByte()
+    fun readInt()
+    fun readLong()
+    fun readDouble()
+    fun readBytes()
+
+    fun writeByte(byte: Byte)
+    fun writeInt(int: Int)
+    fun writeLong(long: Long)
+    fun writeDouble(double: Double)
+    fun writeBytes(bytes: ByteArray)
 }

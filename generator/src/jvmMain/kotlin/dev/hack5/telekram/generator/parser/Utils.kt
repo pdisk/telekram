@@ -16,26 +16,10 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-buildscript {
-    repositories {
-        jcenter()
-        maven("https://jitpack.io/")
-    }
+package dev.hack5.telekram.generator.parser
 
-    dependencies {
-        classpath("com.github.drieks.antlr-kotlin:antlr-kotlin-gradle-plugin:ce5a7e161a")
-    }
-}
+import java.util.zip.CRC32
 
-plugins {
-    kotlin("multiplatform") version "1.4.0" apply false
-    id("com.palantir.git-version") version "0.12.3"
-}
-
-group = "dev.hack5.telekram"
-version = (ext["gitVersion"] as groovy.lang.Closure<*>)() as String
-
-repositories {
-    jcenter()
-    mavenCentral()
-}
+internal actual fun crcOf(data: String) = CRC32().also {
+    it.update(data.toByteArray())
+}.value.toUInt()
