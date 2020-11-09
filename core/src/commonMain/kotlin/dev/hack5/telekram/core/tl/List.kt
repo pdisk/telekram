@@ -18,6 +18,5 @@
 
 package dev.hack5.telekram.core.tl
 
-internal expect fun String.asByteArray(): ByteArray
-
-internal expect fun ByteArray.asString(): String
+val List<TLObject>.tlSize get() = sumBy(TLObject::tlSize)
+// TODO

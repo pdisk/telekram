@@ -18,6 +18,6 @@
 
 package dev.hack5.telekram.core.tl
 
-internal expect fun String.asByteArray(): ByteArray
-
-internal expect fun ByteArray.asString(): String
+actual fun Buffer(length: Int): Buffer {
+    TODO("Not yet implemented")
+}

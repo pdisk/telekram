@@ -21,14 +21,15 @@ package dev.hack5.telekram.generator.generator
 import com.squareup.kotlinpoet.*
 import dev.hack5.telekram.generator.parser.Arg
 import dev.hack5.telekram.generator.parser.FullCombinatorId
+import dev.hack5.telekram.generator.parser.OptArg
 import dev.hack5.telekram.generator.parser.VarIdentOpt
 
 @ExperimentalUnsignedTypes
-fun flatMapParameters(parameters: List<Arg>): List<Arg> {
+fun flattenParameters(parameters: List<Arg>): List<Arg> {
     return parameters.map {
         when (it) {
             is Arg.SimpleArg -> listOf(it)
-            is Arg.BracketArg -> flatMapParameters(it.innerArgs)
+            is Arg.BracketArg -> flattenParameters(it.innerArgs)
             is Arg.TypeArg -> listOf(it)
         }
     }.flatten()
@@ -45,9 +46,9 @@ val Arg.name: VarIdentOpt
 
 
 @ExperimentalUnsignedTypes
-fun stripImplicitParameters(parameters: List<Arg>): List<Arg> {
-    val toStrip = flatMapParameters(parameters).mapNotNull { (it as? Arg.SimpleArg)?.conditionalDef?.name }
-    return parameters.filter { it.name.ident !in toStrip }
+fun stripImplicitParameters(parameters: Map<String, ParsedArg<OptArgOrArg.Arg>>): Map<String, ParsedArg<OptArgOrArg.Arg>> {
+    val toStrip = parameters.values.mapNotNull { it.conditionalDef?.name }
+    return parameters.filterKeys { it !in toStrip }
 }
 
 
@@ -78,7 +79,7 @@ fun getNativeType(ident: String, context: Context): UnnamedParsedArg {
     }
     val bare = ident.first() == ident.first().toLowerCase()
     return when (ident.toLowerCase()) {
-        "#" -> return UnnamedParsedArg(ClassName("kotlin", "UInt"), true)
+        "#" -> return UnnamedParsedArg(UINT, true)
         "int" -> UnnamedParsedArg(INT, bare)
         "long" -> UnnamedParsedArg(LONG, bare)
         "double" -> UnnamedParsedArg(DOUBLE, bare)
@@ -94,3 +95,4 @@ const val FUNCTION = "Request"
 
 const val OUTPUT_PACKAGE_NAME = "dev.hack5.telekram.core.tl" // TODO make dynamic-ish
 val BUFFER = ClassName("dev.hack5.telekram.core.tl", "Buffer")
+val UINT = ClassName("kotlin", "UInt")

@@ -6,7 +6,7 @@ grammar TL;
 NUMBER_ : [0-9]+ ;
 HEX_CONST_ : ([a-f0-9] | NUMBER_)+ ;
 LC_IDENT_ : [a-z] ([_a-zA-Z] | HEX_CONST_)* ;
-UC_IDENT_ : [A-Z] ([_a-zA-Z] | NUMBER_)* ;
+UC_IDENT_ : [A-Z] ([_a-zA-Z] | HEX_CONST_)* ;
 namespace_ident : LC_IDENT_ ;
 lc_ident_ns : (namespace_ident DOT)* LC_IDENT_ ;
 uc_ident_ns : (namespace_ident DOT)* UC_IDENT_ ;

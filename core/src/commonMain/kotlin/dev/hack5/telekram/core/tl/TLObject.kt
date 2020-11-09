@@ -22,19 +22,29 @@ package dev.hack5.telekram.core.tl
 
 interface TLObject {
     fun toTlRepr(buffer: Buffer, bare: Boolean)
+    fun toTlRepr(bare: Boolean) = Buffer(tlSize + if (bare) 4 else 0).also {
+        toTlRepr(it, bare)
+    }
+
+    val tlSize: Int
 
     val fields: Map<String, TLObject?>
 }
 
 interface TLConstructor<T : TLObject> {
-    fun fromTlRepr(data: Buffer, bare: Boolean)
+    fun fromTlRepr(data: Buffer, bare: Boolean): T
 
     val id: Int?
 }
 
 interface TLTypeConstructor<T : TLObject> : TLConstructor<T> {
-    @Suppress("ImplicitNullableNothingType")
-    override val id: Int? get() = null
+    override fun fromTlRepr(data: Buffer, bare: Boolean): T {
+        require(!bare)
+        return fromTlRepr(data)
+    }
+    fun fromTlRepr(data: Buffer): T
+
+    override val id: Nothing? get() = null
 
     val constructors: Map<Int, TLConstructor<out T>>
 }
@@ -53,7 +63,7 @@ interface Buffer {
     fun readInt()
     fun readLong()
     fun readDouble()
-    fun readBytes()
+    fun readBytes(length: Int)
 
     fun writeByte(byte: Byte)
     fun writeInt(int: Int)
@@ -61,3 +71,5 @@ interface Buffer {
     fun writeDouble(double: Double)
     fun writeBytes(bytes: ByteArray)
 }
+
+expect fun Buffer(length: Int): Buffer

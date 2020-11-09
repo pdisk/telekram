@@ -17,29 +17,7 @@
  */
 
 package dev.hack5.telekram.core.tl
+val UInt.tlSize get() = 4
+val Int.tlSize get() = 4
 
-fun Int.asTlObject() = IntObject(this, true)
-
-data class IntObject(private val int: Int, override val bare: Boolean) :
-    TLObject<Int> {
-    override fun _toTlRepr(): IntArray {
-        return intArrayOf(int)
-    }
-
-    override val native = int
-
-    override val _id = id
-
-    override val fields by lazy { mapOf<String, TLObject<*>>() }
-
-    companion object :
-        TLConstructor<IntObject> {
-        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, IntObject>? {
-            return data.getOrNull(offset)?.let {
-                Pair(1, IntObject(it, true))
-            }
-        }
-
-        override val id: Int? = null
-    }
-}
+// TODO
