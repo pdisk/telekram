@@ -18,30 +18,60 @@
 
 package dev.hack5.telekram.sample
 
+import com.github.aakira.napier.Antilog
 import com.github.aakira.napier.DebugAntilog
 import com.github.aakira.napier.Napier
 import dev.hack5.telekram.api.*
 import dev.hack5.telekram.core.client.GroupingTelegramClient
+import dev.hack5.telekram.core.client.SkippingUpdatesTelegramClient
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.mtproto.PingRequest
 import dev.hack5.telekram.core.state.JsonSession
+import dev.hack5.telekram.core.state.UpdateState
 import dev.hack5.telekram.core.state.invoke
 import dev.hack5.telekram.core.tl.*
+import dev.hack5.telekram.core.updates.UpdateHandlerImpl
 import dev.hack5.telekram.core.utils.toInputChannel
 import dev.hack5.telekram.core.utils.toInputPeer
 import kotlinx.coroutines.*
+import kotlinx.coroutines.debug.DebugProbes
 import kotlinx.coroutines.flow.*
 import java.io.File
 import java.io.FileOutputStream
+import java.util.logging.Level
+import java.util.logging.Logger
 import javax.script.ScriptContext
 import javax.script.ScriptEngineManager
 import kotlin.system.measureNanoTime
+
+class UpdateHandlerImplNoEntities(
+    scope: CoroutineScope,
+    updateState: UpdateState,
+    client: TelegramClient,
+    maxDifference: Int? = null,
+    maxChannelDifference: Int = 100
+) : UpdateHandlerImpl(scope, updateState, client, maxDifference, maxChannelDifference, true) {
+    override suspend fun getEntities(value: TLObject<*>): Map<String, MutableMap<Long, Long>> = mapOf()
+}
 
 @FlowPreview
 @ExperimentalCoroutinesApi
 fun main(): Unit = runBlocking {
     //DebugProbes.install()
     //System.setProperty("java.util.logging.SimpleFormatter.format", "[%1\$tT.%1\$tL] [%4$-7s] %5\$s %n")
+    /*Napier.base(object : Antilog() {
+        val debugAntilog = DebugAntilog()
+        override fun performLog(priority: Napier.Level, tag: String?, throwable: Throwable?, message: String?) {
+            if (priority >= Napier.Level.WARNING) {
+                debugAntilog.log(priority, tag, throwable, message)
+            }
+        }
+
+    })
+    Logger.getLogger("").also {
+        it.level = Level.WARNING
+        it.handlers.forEach { handler -> handler.level = Level.WARNING }
+    }*/
     Napier.base(DebugAntilog())
     val (apiId, apiHash) = File("apiToken").readLines()
     val client =
@@ -51,8 +81,9 @@ fun main(): Unit = runBlocking {
             deviceModel = "Linux",
             systemVersion = "5.8.15-201.fc32.x86_64",
             appVersion = "1.16.0",
-            session = JsonSession(File("telekram.json")).setDc(2, "149.154.167.40", 443),
-            maxFloodWait = Long.MAX_VALUE,
+            session = JsonSession(File("telekram.json"))/*.setDc(2, "149.154.167.40", 443)*/,
+            updateHandlerConstructor = ::UpdateHandlerImplNoEntities,
+            maxFloodWait = 30000,
             parentScope = this
         )
     client.init()
@@ -73,7 +104,9 @@ fun main(): Unit = runBlocking {
 
         }
     }*/
+    val toRead = mutableMapOf<PeerType, MutableStateFlow<MessageObject>>()
     val pendingEdits = mutableMapOf<Pair<PeerType, Int>, CompletableDeferred<EditMessage.EditMessageEvent>>()
+    val groupedClientForReading = GroupingTelegramClient(client, autoSendTime = 100)
     client.eventCallbacks += { event ->
         launch {
             try {
@@ -85,7 +118,7 @@ fun main(): Unit = runBlocking {
                                     var update: UpdatesType?
                                     val editTime = measureNanoTime {
                                         update =
-                                            it.edit(client, message = "Pong")
+                                            it.edit(SkippingUpdatesTelegramClient(client), message = "Pong")
                                     }
                                     val groupedClient = GroupingTelegramClient(client, initialCapacity = 1000)
                                     val pingTime = measureNanoTime {
@@ -97,24 +130,21 @@ fun main(): Unit = runBlocking {
                                             }
                                         }
                                     }
-                                    println(update)
                                     val job = CompletableDeferred<EditMessage.EditMessageEvent>()
                                     pendingEdits[it.toId to it.id] = job
                                     val dispatchTime = measureNanoTime {
-                                        client.sendUpdate(update!!)
+                                        client.sendUpdate(null, update!!)
                                     }
                                     val edit = job.await()
                                     val serverTime = edit.message.editDate!! - it.date
-                                    update =
-                                        client(
-                                            Messages_EditMessageRequest(
-                                                false,
-                                                event.getInputChat()!!,
-                                                it.id,
-                                                "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}ns"
-                                            )
+                                    client(
+                                        Messages_EditMessageRequest(
+                                            false,
+                                            event.getInputChat()!!,
+                                            it.id,
+                                            "Pong\nERTT=${editTime}ns\nSRTT=${serverTime}s\nDT=${dispatchTime}ns\nPRTT=${pingTime}ns"
                                         )
-                                    client.sendUpdate(update!!)
+                                    )
                                 }
                                 if (it.message == ".download") {
                                     if (it.replyToMsgId != null) {
@@ -173,38 +203,65 @@ fun main(): Unit = runBlocking {
                                     try {
                                         val deferred = engine.eval(code) as Deferred<*>
                                         val output = deferred.await()
-                                        val update =
-                                            client(
-                                                Messages_EditMessageRequest(
-                                                    false,
-                                                    event.getInputChat()!!,
-                                                    it.id,
-                                                    "Input: $input\nOutput: $output"
-                                                )
+                                        client(
+                                            Messages_EditMessageRequest(
+                                                false,
+                                                event.getInputChat()!!,
+                                                it.id,
+                                                "Input: $input\nOutput: $output"
                                             )
-                                        client.sendUpdate(update)
+                                        )
                                     } catch (e: Throwable) {
-                                        val update =
-                                            client(
-                                                Messages_EditMessageRequest(
-                                                    false,
-                                                    event.getInputChat()!!,
-                                                    it.id,
-                                                    "Input: $input\nError: ${e.stackTraceToString()}"
-                                                )
+                                        client(
+                                            Messages_EditMessageRequest(
+                                                false,
+                                                event.getInputChat()!!,
+                                                it.id,
+                                                "Input: $input\nError: ${e.stackTraceToString()}"
                                             )
-                                        client.sendUpdate(update)
+                                        )
                                     }
                                 }
                             }
 
                             if (!it.out) {
-                                it.toId.let { toId ->
-                                    if (toId is PeerChannelObject) {
-                                        client(Channels_ReadHistoryRequest(toId.toInputChannel(client), it.id))
-                                    } else {
-                                        client(Messages_ReadHistoryRequest(event.getInputChat()!!, it.id))
+                                var skip = false
+                                toRead.getOrPut(event.chatPeer!!, {
+                                    MutableStateFlow(it).also { flow ->
+                                        launch {
+                                            flow.debounce(100).collect { msg ->
+                                                try {
+                                                    msg.toId.let { toId ->
+                                                        if (toId is PeerChannelObject) {
+                                                            groupedClientForReading(
+                                                                Channels_ReadHistoryRequest(
+                                                                    toId.toInputChannel(client),
+                                                                    msg.id
+                                                                )
+                                                            )
+                                                        } else {
+                                                            println("msg ${it.toId} ${msg.id}")
+                                                            println(it)
+                                                            groupedClientForReading(
+                                                                Messages_ReadHistoryRequest(
+                                                                    event.getInputChat()!!,
+                                                                    msg.id
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                } catch (e: Throwable) {
+                                                    if (e is CancellationException)
+                                                        throw e
+                                                    Napier.e("ERROR", e)
+                                                }
+                                            }
+                                        }
+                                        skip = true
                                     }
+                                }).also { flow ->
+                                    if (!skip)
+                                        flow.value = it
                                 }
                             }
                         }
@@ -215,14 +272,13 @@ fun main(): Unit = runBlocking {
                     is SkippedUpdate.SkippedUpdateEvent -> {
                         event.channelId.let { channelId ->
                             if (channelId != null) {
-                                client(
+                                groupedClientForReading(
                                     Channels_ReadHistoryRequest(
                                         PeerChannelObject(channelId).toInputChannel(client),
                                         client.getMessages(
                                             PeerChannelObject(channelId).toInputPeer(client),
                                             limit = 1
-                                        )
-                                            .single().id
+                                        ).single().id
                                     )
                                 )
                             } else {
@@ -237,15 +293,14 @@ fun main(): Unit = runBlocking {
                                 }.filter {
                                     it.dialog.unreadCount > 0
                                 }.collect {
-                                    client(
-                                        Messages_ReadHistoryRequest(
+                                    groupedClientForReading(
+                                       Messages_ReadHistoryRequest(
                                             it.inputPeer,
                                             client.getMessages(
                                                 it.inputPeer,
                                                 limit = 1
-                                            )
-                                                .single().id
-                                        )
+                                            ).single().id
+                                       )
                                     )
                                 }
                             }
@@ -258,7 +313,7 @@ fun main(): Unit = runBlocking {
                 if (e is CancellationException) throw e
                 Napier.e("error", e)
             } finally {
-                event.originalUpdate?.commit()
+                event.commit()
             }
         }
         Unit
@@ -278,8 +333,16 @@ fun main(): Unit = runBlocking {
         }
     ))
     client.catchUp()
+    launch {
+        val peer = PeerChannelObject(1463155229).toInputPeer(client)
+        while (true) {
+            client.sendMessage(peer, "/fish")
+            delay(6000)
+        }
+    }
     withContext(Dispatchers.IO) {
         readLine()
+        DebugProbes.dumpCoroutines()
     }
     //delay(1800000)
     //DebugProbes.dumpCoroutines()
@@ -288,6 +351,7 @@ fun main(): Unit = runBlocking {
     //client.sendMessage((dialogs.filter { (it as? DialogChat)?.peer?.fullName?.contains("Programmers") == true }.first() as DialogChat).peer, "hello from my new kotlin mtproto library")
     //println(client(Channels_GetChannelsRequest(listOf(InputChannelObject(channelId=1173753783, accessHash=-3214895137574953081)))))
     client.disconnect()
+    cancel()
     Unit
 }
 

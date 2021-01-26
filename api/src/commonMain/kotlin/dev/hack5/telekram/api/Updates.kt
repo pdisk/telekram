@@ -20,23 +20,27 @@ package dev.hack5.telekram.api
 
 import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.tl.*
-import dev.hack5.telekram.core.updates.Skipped
-import dev.hack5.telekram.core.updates.Update
-import dev.hack5.telekram.core.updates.UpdateOrSkipped
+import dev.hack5.telekram.core.tl.PeerType
+import dev.hack5.telekram.core.updates.*
 
 
 interface Event {
     val originalUpdate: Update?
+    suspend fun commit()
 }
 
 interface EventHandler<E : Event> {
     fun constructEvent(client: TelegramClient, update: UpdateOrSkipped): E? = when (update) {
-        is Update -> constructEvent(client, update)
-        is Skipped -> constructEvent(client, update.channelId)
+        is Update -> when (update.update) {
+            is ActualUpdate -> constructEvent(client, update)
+            is SyntheticUpdate -> constructSyntheticEvent(client, update)
+        }
+        is Skipped -> constructSkippedEvent(client, update)
     }
 
     fun constructEvent(client: TelegramClient, update: Update): E? = null
-    fun constructEvent(client: TelegramClient, channelId: Int?): E? = null
+    fun constructSyntheticEvent(client: TelegramClient, update: Update): E? = null
+    fun constructSkippedEvent(client: TelegramClient, update: Skipped): E? = null
 
     companion object {
         val defaultHandlers = listOf(
@@ -64,9 +68,11 @@ object NewMessage : EventHandler<NewMessage.NewMessageEvent> {
                 is PeerChannelObject -> toId
                 null -> null
             }
+
+        override suspend fun commit() = originalUpdate.commit()
     }
 
-    override fun constructEvent(client: TelegramClient, update: Update): NewMessageEvent? = update.update.let {
+    override fun constructEvent(client: TelegramClient, update: Update): NewMessageEvent? = (update.update as ActualUpdate).update.let {
         when (it) {
             is UpdateNewMessageObject -> constructFromMessage(client, update, it.message)
             is UpdateNewChannelMessageObject -> constructFromMessage(client, update, it.message)
@@ -113,9 +119,11 @@ object EditMessage : EventHandler<EditMessage.EditMessageEvent> {
                 is PeerChannelObject -> toId
                 null -> null
             }
+
+        override suspend fun commit() = originalUpdate.commit()
     }
 
-    override fun constructEvent(client: TelegramClient, update: Update): EditMessageEvent? = update.update.let {
+    override fun constructEvent(client: TelegramClient, update: Update): EditMessageEvent? = (update.update as ActualUpdate).update.let {
         when (it) {
             is UpdateEditMessageObject -> constructFromMessage(client, update, it.message)
             is UpdateEditChannelMessageObject -> constructFromMessage(client, update, it.message)
@@ -147,19 +155,26 @@ object EditMessage : EventHandler<EditMessage.EditMessageEvent> {
 }
 
 object SkippedUpdate : EventHandler<SkippedUpdate.SkippedUpdateEvent> {
-    data class SkippedUpdateEvent(val client: TelegramClient, val channelId: Int?) : Event {
+    data class SkippedUpdateEvent(val client: TelegramClient, val originalSkipped: Skipped) : Event {
         override val originalUpdate: Nothing?
             get() = null
+
+        val channelId get() = originalSkipped.channelId
+
+        override suspend fun commit() = originalSkipped.commit()
     }
 
-    override fun constructEvent(client: TelegramClient, channelId: Int?) = SkippedUpdateEvent(client, channelId)
+    override fun constructSkippedEvent(client: TelegramClient, update: Skipped) = SkippedUpdateEvent(client, update)
 }
 
 object RawUpdate : EventHandler<RawUpdate.RawUpdateEvent> {
     data class RawUpdateEvent(val client: TelegramClient, override val originalUpdate: Update) : Event {
         val update
             get() = originalUpdate.update
+
+        override suspend fun commit() = originalUpdate.commit()
     }
 
     override fun constructEvent(client: TelegramClient, update: Update) = RawUpdateEvent(client, update)
+    override fun constructSyntheticEvent(client: TelegramClient, update: Update) = RawUpdateEvent(client, update)
 }

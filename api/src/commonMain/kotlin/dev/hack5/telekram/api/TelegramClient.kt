@@ -47,7 +47,7 @@ open class TelegramClientApiImpl(
             state.scope = it
         }
     },
-    encryptedEncoderConstructor: (MTProtoState) -> EncryptedMTProtoEncoder = { EncryptedMTProtoEncoder(it) },
+    encryptedEncoderConstructor: (MTProtoState, CoroutineScope) -> EncryptedMTProtoEncoder = { state, scope -> EncryptedMTProtoEncoder(state, scope) },
     updateHandlerConstructor: (CoroutineScope, UpdateState, TelegramClient) -> UpdateHandler? = { scope, state, client ->
         UpdateHandlerImpl(
             scope,

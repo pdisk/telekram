@@ -18,6 +18,7 @@
 
 package dev.hack5.telekram.core.updates
 
+import dev.hack5.telekram.core.client.TelegramClient
 import dev.hack5.telekram.core.tl.*
 import dev.hack5.telekram.core.utils.TLWalker
 
@@ -368,3 +369,211 @@ class PtsGetter : TLWalker<Map<Int, Int>>() {
         return true
     }
 }
+
+
+
+val UpdatesType.date
+    get() = when (this) {
+        is UpdateShortMessageObject -> date
+        is UpdateShortChatMessageObject -> date
+        is UpdateShortObject -> date
+        is UpdatesCombinedObject -> date
+        is UpdatesObject -> date
+        is UpdateShortSentMessageObject -> date
+        else -> null
+    }
+val UpdatesType.seq
+    get() = when (this) {
+        is UpdatesCombinedObject -> seq
+        is UpdatesObject -> seq
+        else -> null
+    }
+val UpdatesType.seqStart
+    get() = when (this) {
+        is UpdatesCombinedObject -> seqStart
+        is UpdatesObject -> seq
+        else -> null
+    }
+val UpdateType.channelId
+    get() = when (this) {
+        is UpdateNewChannelMessageObject -> (message.toId as? PeerChannelObject)?.channelId
+        is UpdateChannelTooLongObject -> channelId
+        is UpdateReadChannelInboxObject -> channelId
+        is UpdateDeleteChannelMessagesObject -> channelId
+        is UpdateEditChannelMessageObject -> (message.toId as? PeerChannelObject)?.channelId
+        is UpdateChannelWebPageObject -> channelId
+        else -> null
+    }
+val UpdateType.pts
+    get() = when (this) {
+        is UpdateNewChannelMessageObject -> pts
+        is UpdateNewMessageObject -> pts
+        is UpdateDeleteMessagesObject -> pts
+        is UpdateReadHistoryInboxObject -> pts
+        is UpdateReadHistoryOutboxObject -> pts
+        is UpdateWebPageObject -> pts
+        is UpdateReadMessagesContentsObject -> pts
+        is UpdateChannelTooLongObject -> pts
+        is UpdateReadChannelInboxObject -> pts
+        is UpdateDeleteChannelMessagesObject -> pts
+        is UpdateEditChannelMessageObject -> pts
+        is UpdateEditMessageObject -> pts
+        is UpdateChannelWebPageObject -> pts
+        is UpdateFolderPeersObject -> pts
+        else -> null
+    }
+val UpdateType.ptsCount
+    get() = when (this) {
+        is UpdateNewChannelMessageObject -> ptsCount
+        is UpdateNewMessageObject -> ptsCount
+        is UpdateDeleteMessagesObject -> ptsCount
+        is UpdateReadHistoryInboxObject -> ptsCount
+        is UpdateReadHistoryOutboxObject -> ptsCount
+        is UpdateWebPageObject -> ptsCount
+        is UpdateReadMessagesContentsObject -> ptsCount
+        is UpdateChannelTooLongObject -> null
+        is UpdateReadChannelInboxObject -> 0
+        is UpdateDeleteChannelMessagesObject -> ptsCount
+        is UpdateEditChannelMessageObject -> ptsCount
+        is UpdateEditMessageObject -> ptsCount
+        is UpdateChannelWebPageObject -> ptsCount
+        is UpdateFolderPeersObject -> ptsCount
+        else -> null
+    }
+
+sealed class UpdateOrSkipped(open val update: ActualOrSyntheticUpdate?) {
+    abstract suspend fun commit()
+}
+
+class Update(override val update: ActualOrSyntheticUpdate, private val onCommit: suspend () -> Unit) : UpdateOrSkipped(update) {
+    override suspend fun commit() = onCommit()
+
+    // TODO: KT-42807
+    override fun equals(other: Any?): Boolean {
+        if (other !is Update)
+            return false
+        return other.update == update
+    }
+
+    override fun hashCode() = update.hashCode()
+
+    override fun toString(): String {
+        return "Update(update=$update)"
+    }
+}
+
+data class Skipped(val channelId: Int?, private val onCommit: suspend () -> Unit) : UpdateOrSkipped(null) {
+    override suspend fun commit() = onCommit()
+
+    // TODO: KT-42807
+    override fun equals(other: Any?): Boolean {
+        if (other !is Skipped)
+            return false
+        return other.channelId == channelId
+    }
+
+    override fun hashCode() = channelId.hashCode()
+
+    override fun toString(): String {
+        return "Skipped(channelId=$channelId)"
+    }
+}
+
+sealed class ActualOrSyntheticUpdate {
+    abstract val pts: Int?
+    abstract val ptsCount: Int?
+    abstract val channelId: Int?
+}
+data class ActualUpdate(val update: UpdateType) : ActualOrSyntheticUpdate() {
+    override val pts get() = update.pts
+    override val ptsCount get() = update.ptsCount
+    override val channelId = update.channelId
+}
+
+sealed class SyntheticUpdate : ActualOrSyntheticUpdate() {
+    abstract val originalRequest: TLMethod<*>
+    abstract val result: TLObject<*>
+    abstract override val pts: Int
+
+    companion object {
+        suspend inline operator fun <T : TLObject<*>>invoke(originalRequest: TLMethod<T>, result: T, client: TelegramClient) = when (originalRequest) {
+            is Messages_DeleteHistoryRequest -> HistoryDeletedSyntheticUpdate(originalRequest, result as Messages_AffectedHistoryType)
+            is Messages_ReadMentionsRequest -> MentionsReadSyntheticUpdate(originalRequest, result as Messages_AffectedHistoryType)
+            is Channels_DeleteUserHistoryRequest -> DeleteUserHistorySyntheticUpdate(originalRequest, result as Messages_AffectedHistoryType)
+            is Messages_ReadHistoryRequest -> {
+                result as Messages_AffectedMessagesObject
+                val peer = when (originalRequest.peer) {
+                    is InputPeerEmptyObject -> error("Empty peer was accepted by server for $originalRequest -> $result")
+                    is InputPeerSelfObject -> PeerUserObject(client.getInputMe().userId)
+                    is InputPeerChatObject -> PeerChatObject(originalRequest.peer.chatId)
+                    is InputPeerUserObject -> PeerUserObject(originalRequest.peer.userId)
+                    is InputPeerChannelObject -> PeerChannelObject(originalRequest.peer.channelId)
+                    is InputPeerUserFromMessageObject -> PeerUserObject(originalRequest.peer.userId)
+                    is InputPeerChannelFromMessageObject -> PeerChannelObject(originalRequest.peer.channelId)
+                }
+                ActualUpdate(UpdateReadHistoryOutboxObject(peer, originalRequest.maxId, result.pts, result.ptsCount))
+            }
+            is Messages_DeleteMessagesRequest -> {
+                result as Messages_AffectedMessagesObject
+                ActualUpdate(UpdateDeleteMessagesObject(originalRequest.id, result.pts, result.ptsCount))
+            }
+            is Messages_ReadMessageContentsRequest -> {
+                result as Messages_AffectedMessagesObject
+                ActualUpdate(UpdateReadMessagesContentsObject(originalRequest.id, result.pts, result.ptsCount))
+            }
+            is Channels_DeleteMessagesRequest -> {
+                result as Messages_AffectedMessagesObject
+                val channelId = when (originalRequest.channel) {
+                    is InputChannelEmptyObject -> error("Empty channel was accepted by server for $originalRequest -> $result")
+                    is InputChannelObject -> originalRequest.channel.channelId
+                    is InputChannelFromMessageObject -> originalRequest.channel.channelId
+                }
+                ActualUpdate(UpdateDeleteChannelMessagesObject(channelId, originalRequest.id, result.pts, result.ptsCount))
+            }
+            else -> error("Invalid synthetic update $originalRequest -> $result")
+        }
+    }
+}
+
+data class HistoryDeletedSyntheticUpdate(override val originalRequest: Messages_DeleteHistoryRequest, override val result: Messages_AffectedHistoryType) : SyntheticUpdate() {
+    override val pts get() = (result as Messages_AffectedHistoryObject).pts
+    override val ptsCount get() = (result as Messages_AffectedHistoryObject).ptsCount
+    override val channelId get() = when (originalRequest.peer) {
+        is InputPeerEmptyObject -> null
+        is InputPeerSelfObject -> null
+        is InputPeerChatObject -> null
+        is InputPeerUserObject -> null
+        is InputPeerChannelObject -> originalRequest.peer.channelId
+        is InputPeerUserFromMessageObject -> null
+        is InputPeerChannelFromMessageObject -> originalRequest.peer.channelId
+    }
+}
+data class MentionsReadSyntheticUpdate(override val originalRequest: Messages_ReadMentionsRequest, override val result: Messages_AffectedHistoryType) : SyntheticUpdate() {
+    override val pts get() = (result as Messages_AffectedHistoryObject).pts
+    override val ptsCount get() = (result as Messages_AffectedHistoryObject).ptsCount
+    override val channelId get() = when (originalRequest.peer) {
+        is InputPeerEmptyObject -> null
+        is InputPeerSelfObject -> null
+        is InputPeerChatObject -> null
+        is InputPeerUserObject -> null
+        is InputPeerChannelObject -> originalRequest.peer.channelId
+        is InputPeerUserFromMessageObject -> null
+        is InputPeerChannelFromMessageObject -> originalRequest.peer.channelId
+    }
+}
+data class DeleteUserHistorySyntheticUpdate(override val originalRequest: Channels_DeleteUserHistoryRequest, override val result: Messages_AffectedHistoryType) : SyntheticUpdate() {
+    override val pts get() = (result as Messages_AffectedHistoryObject).pts
+    override val ptsCount get() = (result as Messages_AffectedHistoryObject).ptsCount
+    override val channelId get() = when (originalRequest.channel) {
+        is InputChannelEmptyObject -> null
+        is InputChannelObject -> originalRequest.channel.channelId
+        is InputChannelFromMessageObject -> originalRequest.channel.channelId
+    }
+}
+
+private val MessageType.toId: dev.hack5.telekram.core.tl.PeerType?
+    get() = when (this) {
+        is MessageEmptyObject -> null
+        is MessageObject -> toId
+        is MessageServiceObject -> toId
+    }

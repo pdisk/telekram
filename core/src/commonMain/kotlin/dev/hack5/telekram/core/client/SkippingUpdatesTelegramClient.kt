@@ -16,23 +16,20 @@
  *     along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package dev.hack5.telekram.core.encoder
+package dev.hack5.telekram.core.client
 
-import dev.hack5.telekram.core.mtproto.MessageObject
-import dev.hack5.telekram.core.state.MTProtoState
+import dev.hack5.telekram.core.tl.TLMethod
 import dev.hack5.telekram.core.tl.TLObject
 
-abstract class MTProtoEncoder(val state: MTProtoState) {
-    abstract suspend fun encode(data: ByteArray): ByteArray
-    abstract suspend fun decode(data: ByteArray): ByteArray
-}
-
-abstract class MTProtoEncoderWrapped(state: MTProtoState) : MTProtoEncoder(state) {
-    abstract suspend fun encodeMessage(data: MessageObject): ByteArray
-    abstract suspend fun decodeMessage(data: ByteArray): MessageObject
-
-    abstract suspend fun wrapAndEncode(data: TLObject<*>, isContentRelated: Boolean = true): Pair<ByteArray, Long>
-    abstract suspend fun wrap(data: TLObject<*>, isContentRelated: Boolean = true): Pair<MessageObject, Long>
-
-    abstract var retryAllRequests: (suspend () -> Unit)?
+open class SkippingUpdatesTelegramClient(
+    val client: TelegramClient
+) : TelegramClient by client {
+    override suspend operator fun <N, R : TLObject<N>> invoke(
+        request: TLMethod<R>,
+        skipEntities: Boolean,
+        skipUpdates: Boolean,
+        packer: (suspend (TLMethod<*>) -> TLObject<*>)?
+    ): N {
+        return client.invoke(request, skipEntities, true, packer)
+    }
 }

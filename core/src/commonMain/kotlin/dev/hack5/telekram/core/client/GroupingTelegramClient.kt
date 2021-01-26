@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 
 open class GroupingTelegramClient(
     val client: TelegramClient,
-    protected val autoSendTime: Long = 0,
+    val autoSendTime: Long = 0,
     initialCapacity: Int = 100
 ) : TelegramClient by client, BaseActor(client.scope!!) {
     protected var pendingRequests = ArrayDeque<PendingRequest<*>>(initialCapacity)
@@ -39,12 +39,12 @@ open class GroupingTelegramClient(
     override suspend operator fun <N, R : TLObject<N>> invoke(
         request: TLMethod<R>,
         skipEntities: Boolean,
-        forUpdate: Boolean,
+        skipUpdates: Boolean,
         packer: (suspend (TLMethod<*>) -> TLObject<*>)?
     ): N {
         require(packer == null) { "packer ($packer) not null in grouped request" } // TODO consider if this needs changing/'fixing'
         val pendingRequest =
-            PendingRequest(client.packer!!.wrap(request), skipEntities, forUpdate, CompletableDeferred())
+            PendingRequest(request, skipEntities, skipUpdates, CompletableDeferred())
         act {
             pendingRequests.addFirst(pendingRequest)
             sendJob?.cancel()
@@ -56,7 +56,7 @@ open class GroupingTelegramClient(
                 sendPending()
             }
         }
-        return client(request, skipEntities, forUpdate) { pendingRequest.result.await() }
+        return client(request, skipEntities, skipUpdates) { pendingRequest.result.await() }
     }
 
     suspend fun sendPending() {
@@ -68,7 +68,7 @@ open class GroupingTelegramClient(
             var length = 0
             while (true) {
                 val request = pendingRequests.removeLastOrNull() ?: break
-                length += request.request.first.toTlRepr().size * Int.SIZE_BYTES // TODO: don't evaluate the body twice
+                length += (request.request.toTlRepr().size + 4 /* size of %Message, TODO refactor when new generator is ready */) * Int.SIZE_BYTES // TODO: don't evaluate the body twice
                 if (length >= containerMaxSize || requests.size + 1 >= containerMaxMessages) {
                     pendingRequests.addLast(request)
                     break
@@ -80,7 +80,10 @@ open class GroupingTelegramClient(
         }
         if (requests.isEmpty())
             return
-        val results = requests.zip(packer!!.sendAndRecvContainer(requests.map(PendingRequest<*>::request::get)))
+        val results = requests.singleOrNull()?.let {
+                listOf(it to CompletableDeferred(packer!!.sendAndRecv(it.request)))
+            } ?:
+                requests.zip(packer!!.sendAndRecvContainer(requests.map(PendingRequest<*>::request::get)))
         for ((pendingRequest, result) in results) {
             result.invokeOnCompletion {
                 if (it != null) {
@@ -96,7 +99,7 @@ open class GroupingTelegramClient(
     }
 
     protected data class PendingRequest<R : TLObject<*>>(
-        val request: Pair<MessageObject, Long>,
+        val request: TLMethod<R>,
         val skipEntities: Boolean,
         val forUpdate: Boolean,
         val result: CompletableDeferred<R>

@@ -29,13 +29,25 @@ import dev.hack5.telekram.core.tl.TLObject
 import dev.hack5.telekram.core.tl.toByteArray
 import dev.hack5.telekram.core.tl.toInt
 import dev.hack5.telekram.core.tl.toIntArray
+import dev.hack5.telekram.core.utils.Actor
+import dev.hack5.telekram.core.utils.BaseActor
+import dev.hack5.telekram.core.utils.GenericActor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.serialization.Transient
+import kotlin.jvm.Volatile
 import kotlin.random.Random
 
 open class EncryptedMTProtoEncoder(
     state: MTProtoState,
+    scope: CoroutineScope,
     val aesConstructor: (AESMode, ByteArray) -> AES = ::AESPlatformImpl
 ) : MTProtoEncoderWrapped(state) {
     private val authKeyId = state.authKey!!.keyId
+    override var retryAllRequests: (suspend () -> Unit)? = null
+    private var isSleeping = false
+
+    var act = GenericActor(scope)
 
     private fun calcKey(msgKey: ByteArray, client: Boolean): Pair<ByteArray, ByteArray> {
         val x = if (client) 0 else 8
@@ -79,6 +91,10 @@ open class EncryptedMTProtoEncoder(
                 -404 -> {
                     // auth key unknown, regenerate it
                     TODO("Auth key regeneration not implemented")
+                }
+                -429 -> {
+                    retryAllRequests?.invoke()
+                    error("Server sent quick floodwait; this request will be retried")
                 }
                 else -> {
                     error("Unknown server error $error")

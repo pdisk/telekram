@@ -140,9 +140,7 @@ data class MTProtoStateImpl(override val authKey: AuthKey? = null) : MTProtoStat
      * Create a new session and reset all the things that need to be reset
      */
     override suspend fun reset() = act {
-        sessionId = Random.nextBytes(8)
         seq = 0
         remoteContentRelatedSeq = -1
-        lastMsgId = 0L
     }
 }
