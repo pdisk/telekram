@@ -30,12 +30,14 @@ import dev.hack5.telekram.core.utils.GZIPImpl
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 
+// TODO: this file is leaking coroutines, make sure that all coroutines are cleaned up after they succeed or fail
+
 private const val tag = "MessagePackerUnpacker"
 
 interface MessagePackerUnpacker {
     suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*>
     suspend fun wrap(message: TLMethod<*>): Pair<MessageObject, Long>
-    suspend fun sendAndRecvContainer(messages: List<Pair<MessageObject, Long>>): List<Deferred<TLObject<*>>>
+    suspend fun sendAndRecvContainer(messages: List<TLObject<*>>): List<Deferred<TLObject<*>>>
     suspend fun pump(input: Channel<ByteArray>)
 
     val updatesChannel: Channel<UpdatesType>
@@ -52,60 +54,93 @@ class MessagePackerUnpackerImpl(
     override val updatesChannel: Channel<UpdatesType>,
     private val scope: CoroutineScope
 ) : MessagePackerUnpacker {
+    init {
+        encoder.retryAllRequests = ::retryAllRequests
+    }
+
     private val pendingMessages: MutableMap<Long, Pair<CompletableDeferred<MessageUnpackAction>, Boolean>> = HashMap(5)
 
     override val containerMaxMessages
-        get() = 1020
+        get() = 1000 // docs say 1020 but crashes would be bad
     override val containerMaxSize: Int
         get() = 1044456 - 8 // idek what these numbers are, ask lonami. docs say 2^15-8, meh.
 
-    private val connectionReplaced = Job()
+    override suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> = sendAndRecv(message, 0)
 
-    override suspend fun sendAndRecv(message: TLMethod<*>): TLObject<*> {
+    suspend fun sendAndRecv(message: TLMethod<*>, attempts: Int): TLObject<*> {
         val encoded = encoder.wrapAndEncode(message)
         val deferred = CompletableDeferred<MessageUnpackAction>()
         pendingMessages[encoded.second] = deferred to true
-        try {
-            connection.send(encoded.first)
-        } catch (e: ConnectionException) {
-            /* no-op - we will get a MessageUnpackActionRetry once the reconnection is complete */
-        }
+        connection.send(encoded.first)
         return when (val action = deferred.await()) {
-            is MessageUnpackActionRetry -> sendAndRecv(message)
-            is MessageUnpackActionReturn -> action.value
+            is MessageUnpackActionSyntheticRetry, is MessageUnpackActionRetry -> {
+                if (attempts >= 5) {
+                    error("Too many retries") // TODO make proper exception
+                }
+                if (action is MessageUnpackActionSyntheticRetry) {
+                    delay((1 shl attempts) * 1000L)
+                }
+                sendAndRecv(message, attempts + 1)
+            }
+            is MessageUnpackActionReturn -> {
+                Napier.v("Completed request ${encoded.second}")
+                action.value
+            }
         }
     }
 
     override suspend fun wrap(message: TLMethod<*>): Pair<MessageObject, Long> = encoder.wrap(message)
 
-    override suspend fun sendAndRecvContainer(messages: List<Pair<MessageObject, Long>>): List<Deferred<TLObject<*>>> {
+    override suspend fun sendAndRecvContainer(messages: List<TLObject<*>>): List<Deferred<TLObject<*>>> = sendAndRecvContainer(messages, 0)
+
+    suspend fun sendAndRecvContainer(messages: List<TLObject<*>>, attempts: Int): List<Deferred<TLObject<*>>> {
         val results = mutableListOf<Deferred<TLObject<*>>>()
-        val containedMessages = messages.map { encoded ->
-            val deferred = CompletableDeferred<MessageUnpackAction>()
+        val completedRequests = mutableSetOf<Int>()
+        val containedMessages = messages.mapIndexed { i, request ->
             val result = CompletableDeferred<TLObject<*>>()
             results += result
+            val packed = encoder.wrap(request)
+            val deferred = CompletableDeferred<MessageUnpackAction>()
+            pendingMessages[packed.second] = deferred to false
             scope.launch {
                 when (val action = deferred.await()) {
                     /* "A container may only be accepted or rejected by the other party as a whole." */
-                    is MessageUnpackActionRetry -> error("Server sent a rejection to a container submessage")
-                    is MessageUnpackActionReturn -> result.complete(action.value)
+                    is MessageUnpackActionRetry -> {
+                        error("Server sent a rejection to a container submessage") // server broken, as usual
+                    }
+                    is MessageUnpackActionReturn -> {
+                        completedRequests += i
+                        Napier.v("Completed request ${packed.second}")
+                        result.complete(action.value)
+                    }
                 }
             }
-            pendingMessages[encoded.second] = deferred to false
-            encoded
+            packed
         }
         val container = MsgContainerObject(containedMessages.map { it.first })
         val encoded = encoder.wrapAndEncode(container, false)
-        val deferred = CompletableDeferred<MessageUnpackAction>()
+        val containerDeferred = CompletableDeferred<MessageUnpackAction>()
+        pendingMessages[encoded.second] = containerDeferred to true
+        connection.send(encoded.first)
         scope.launch {
-            when (val action = deferred.await()) {
-                /* "A container may only be accepted or rejected by the other party as a whole." */
-                is MessageUnpackActionRetry -> sendAndRecvContainer(messages)
+            when (val action = containerDeferred.await()) {
+                is MessageUnpackActionSyntheticRetry, is MessageUnpackActionRetry -> {
+                    if (attempts >= 5) {
+                        error("Too many retries") // TODO make proper exception
+                    }
+                    if (action is MessageUnpackActionSyntheticRetry) {
+                        delay((1 shl attempts) * 1000L)
+                    }
+                    // TODO be more careful about completedRequests concurrency issues
+                    val requests = messages.filterIndexed { i, _ -> i !in completedRequests }
+                    if (requests.isEmpty()) {
+                        return@launch // all requests were fulfilled
+                    }
+                    sendAndRecvContainer(requests, attempts + 1)
+                }
                 is MessageUnpackActionReturn -> error("Server sent a response (${action.value}) to a container")
             }
         }
-        pendingMessages[encoded.second] = deferred to true
-        connection.send(encoded.first)
         return results
     }
 
@@ -198,7 +233,7 @@ class MessagePackerUnpackerImpl(
                 }
                 is MsgsAckObject -> {
                     message.msgIds.forEach {
-                        // TODO incomingMessages.send(MessageUnpackActionReturn(it, null))
+                        // TODO implement some kind of timeout after message without ack
                     }
                 }
                 is FutureSaltsObject -> {
@@ -242,9 +277,13 @@ class MessagePackerUnpackerImpl(
     override suspend fun resetConnection(newConnection: Connection) {
         connection = newConnection
         state.reset()
+        retryAllRequests()
+    }
+
+    suspend fun retryAllRequests() {
         pendingMessages.forEach {
             if (it.value.second) {
-                it.value.first.complete(MessageUnpackActionRetry)
+                it.value.first.complete(MessageUnpackActionSyntheticRetry)
             }
         }
     }
@@ -252,5 +291,6 @@ class MessagePackerUnpackerImpl(
 
 sealed class MessageUnpackAction
 
+object MessageUnpackActionSyntheticRetry : MessageUnpackAction()
 object MessageUnpackActionRetry : MessageUnpackAction()
 class MessageUnpackActionReturn(val value: TLObject<*>) : MessageUnpackAction()

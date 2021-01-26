@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="telekram-jvm-30efd93">
+    <output-path>$PROJECT_DIR$/build/libs</output-path>
+    <root id="archive" name="telekram-jvm-30efd93.jar">
+      <element id="module-output" name="telekram.jvmMain" />
+    </root>
+  </artifact>
+</component>

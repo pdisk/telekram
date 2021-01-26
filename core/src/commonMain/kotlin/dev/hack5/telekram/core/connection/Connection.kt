@@ -81,10 +81,10 @@ abstract class Connection(protected val scope: CoroutineScope, protected val hos
         sendLock.withLock {
             try {
                 sendInternal(data)
-            } catch (e: ConnectionClosedException) {
+            } catch (e: ConnectionException) {
                 @Suppress("EXPERIMENTAL_API_USAGE")
                 notifyConnectionStatus(false)
-                throw e
+                Napier.e("Disconnected", e)
             }
         }
     }

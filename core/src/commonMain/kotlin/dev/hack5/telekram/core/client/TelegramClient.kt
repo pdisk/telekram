@@ -65,9 +65,11 @@ interface TelegramClient {
     suspend operator fun <N, R : TLObject<N>> invoke(
         request: TLMethod<R>,
         skipEntities: Boolean = false,
-        forUpdate: Boolean = false,
+        skipUpdates: Boolean = false,
         packer: (suspend (TLMethod<*>) -> TLObject<*>)? = null
     ): N
+
+    suspend fun <R : TLObject<*>>sendUpdate(request: TLMethod<R>?, update: R)
 
     suspend fun <R : TLObject<*>> send(request: TLMethod<R>, encoder: MTProtoEncoder): R
 
@@ -85,7 +87,6 @@ interface TelegramClient {
     suspend fun getAccessHash(constructor: PeerType, peerId: Long): Long?
     var updateCallbacks: List<suspend (UpdateOrSkipped) -> Unit>
     suspend fun catchUp()
-    suspend fun sendUpdate(update: UpdatesType)
 
     val serverConfig: StateFlow<ConfigObject?>
 
@@ -101,7 +102,9 @@ open class TelegramClientCoreImpl(
             MTProtoStateImpl()
         ).apply { state.scope = it }
     },
-    protected val encryptedEncoderConstructor: (MTProtoState) -> EncryptedMTProtoEncoder = { EncryptedMTProtoEncoder(it) },
+    protected val encryptedEncoderConstructor: (MTProtoState, CoroutineScope) -> EncryptedMTProtoEncoder = { state, scope ->
+        EncryptedMTProtoEncoder(state, scope)
+    },
     protected val updateHandlerConstructor: (CoroutineScope, UpdateState, TelegramClient) -> UpdateHandler? = { scope, state, client ->
         UpdateHandlerImpl(
             scope,
@@ -166,11 +169,11 @@ open class TelegramClientCoreImpl(
                         )
                     ).also { state ->
                         state.scope = scope!!
-                        encoder = encryptedEncoderConstructor(state)
+                        encoder = encryptedEncoderConstructor(state, scope!!)
                         packer = packerConstructor(it, encoder!!, state, updatesChannel, scope!!)
                     })
             else if (encoder == null) {
-                encoder = encryptedEncoderConstructor(session.state!!)
+                encoder = encryptedEncoderConstructor(session.state!!, scope!!)
                 packer = packerConstructor(it, encoder!!, session.state!!, updatesChannel, scope!!)
             } else {
                 packer!!.resetConnection(it)
@@ -207,7 +210,6 @@ open class TelegramClientCoreImpl(
     }
 
     override suspend fun reconnect() {
-        val scope = connectionScope
         connection?.disconnect()
         connectionScope?.coroutineContext?.get(Job)?.cancelAndJoin()
         connect()
@@ -228,7 +230,7 @@ open class TelegramClientCoreImpl(
                 updateHandlerConstructor(scope!!, it, this)
             }?.also {
                 // TODO cleanup
-                it.updates.send(Skipped(null)) // always send global skipped on session init
+                it.updates.send(Skipped(null) { }) // always send global skipped on session init
             }
         } else {
             session.updates?.let {
@@ -249,20 +251,18 @@ open class TelegramClientCoreImpl(
         scope!!.launch {
             var i = 0
             while (true) {
-                delay(30000)
+                delay(10000)
                 session.save()
-                invoke(PingRequest(Random.nextLong()))
-                i = (i + 1) % 30
+                withTimeoutOrNull(30000) {
+                    invoke(PingRequest(Random.nextLong()))
+                } ?: scope!!.launch(NonCancellable) { reconnect() }
+                i = (i + 1) % 6
                 if (i == 0) {
                     updatesHandler?.catchUp()
                 }
             }
         }
         return loggedIn to ret
-    }
-
-    override suspend fun sendUpdate(update: UpdatesType) {
-        updatesHandler!!.handleUpdates(update)
     }
 
     protected suspend fun logIn(
@@ -293,9 +293,15 @@ open class TelegramClientCoreImpl(
             } catch (e: RedirectedError.PhoneMigrateError) {
                 Napier.d("Phone migrated to ${e.dc}", tag = tag)
                 disconnect()
-                val newDc = serverConfig.value!!.dcOptions.map { it as DcOptionObject }.filter { it.id == e.dc }.random()
-                session = session.setDc(e.dc, newDc.ipAddress, newDc.port).setState(null)
-                return start({ phone }, signUpConsent, phoneCode, password)
+                val newDcOptions = serverConfig.value!!.dcOptions.map { it as DcOptionObject }.filter { it.id == e.dc && !it.cdn && !it.mediaOnly }
+                for (newDc in newDcOptions) {
+                    session = session.setDc(e.dc, newDc.ipAddress, newDc.port).setState(null)
+                    withTimeoutOrNull(5000) {
+                        connect()
+                    } ?: continue
+                    return start({ phone }, signUpConsent, phoneCode, password)
+                }
+                error("All applicable connections failed")
             }
         val auth = try {
             this(Auth_SignInRequest(phone, sentCode.phoneCodeHash, phoneCode()))
@@ -384,10 +390,10 @@ open class TelegramClientCoreImpl(
             while (true)
                 try {
                     packer!!.updatesChannel.receive().let {
-                        updatesHandler?.getEntities(it, true)?.let { entities ->
+                        updatesHandler?.getEntities(it)?.let { entities ->
                             session.addEntities(entities)
                         }
-                        updatesHandler?.handleUpdates(it)
+                        updatesHandler?.handleUpdates(null, it)
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException)
@@ -396,6 +402,10 @@ open class TelegramClientCoreImpl(
                     // TODO possibly send a notification about missing updates, or catchUp()
                 }
         }
+    }
+
+    override suspend fun <R : TLObject<*>>sendUpdate(request: TLMethod<R>?, update: R) {
+        updatesHandler?.handleUpdates(request, update)
     }
 
     override suspend fun exportSession(newSession: Session<*>, untrusted: Boolean): TelegramClientCoreImpl {
@@ -443,32 +453,36 @@ open class TelegramClientCoreImpl(
     protected suspend fun <R : TLObject<*>> sendAndUnpack(
         request: TLMethod<R>,
         skipEntities: Boolean,
-        forUpdate: Boolean,
+        skipUpdates: Boolean,
         packer: (suspend (TLMethod<*>) -> TLObject<*>)?
     ): R {
         Napier.d(request.toString(), tag = tag)
         val ret: R = try {
             sendWrapped(request, packer ?: this.packer!!::sendAndRecv)
         } catch (e: BadRequestError.FloodWaitError) {
-            val seconds = if (e.seconds == 0) 500 else e.seconds * 1000
-            if (seconds > maxFloodWait) throw e
-            delay(seconds.toLong())
-            sendAndUnpack(request, skipEntities, forUpdate, packer)
+            val ms = if (e.seconds == 0) 500 else e.seconds * 1000
+            if (ms > maxFloodWait) throw e
+            delay(ms.toLong())
+            sendAndUnpack(request, skipEntities, skipUpdates, packer)
         }
         if (!skipEntities) {
-            updatesHandler?.getEntities(ret, forUpdate)?.let {
+            updatesHandler?.getEntities(ret)?.let {
                 session.addEntities(it)
             }
         }
+        if (!skipUpdates) {
+            updatesHandler?.handleUpdates(request, ret)
+        }
+        Napier.d(ret.toString(), tag = tag)
         return ret
     }
 
     override suspend operator fun <N, R : TLObject<N>> invoke(
         request: TLMethod<R>,
         skipEntities: Boolean,
-        forUpdate: Boolean,
+        skipUpdates: Boolean,
         packer: (suspend (TLMethod<*>) -> TLObject<*>)?
     ): N {
-        return sendAndUnpack(request, skipEntities, forUpdate, packer).native
+        return sendAndUnpack(request, skipEntities, skipUpdates, packer).native
     }
 }
