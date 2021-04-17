@@ -21,8 +21,6 @@ package dev.hack5.telekram.generator.generator
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import dev.hack5.telekram.generator.parser.*
-import java.nio.Buffer
-import java.nio.IntBuffer
 
 
 // TODO rewrite this file to allow better handling of OptArgs
@@ -117,7 +115,7 @@ fun generateRequest(function: Combinator, nameAllocator: NameAllocator): TypeSpe
     }
     val userParameters = stripImplicitParameters(parameters)
     val primaryConstructor = FunSpec.constructorBuilder().also {
-        it.parameters.addAll(parameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
+        it.parameters.addAll(userParameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
     }.build()
     val superclass = ClassName("dev.hack5.telekram.core.tl", "TLFunction").parameterizedBy(getNativeType(function.resultType.name, context).parameterizedBy(*function.resultType.generics.map { getGenericExpr(Expr(listOf(it)), context, nameAllocator) }.toTypedArray()).type)
     val generics = function.optArgs.map { TypeVariableName(it.name, ClassName(OUTPUT_PACKAGE_NAME, "TLObject")) }
@@ -131,11 +129,15 @@ fun generateRequest(function: Combinator, nameAllocator: NameAllocator): TypeSpe
         .apply {
             for (parameter in parameters.values) {
                 parameter.conditionalDef?.let {
-                    val param = parameters[it.name]
-                    println(it.name)
-                    println(parameters.keys)
-                    assert(param!!.type == UINT)
-                    beginControlFlow("if (%N.shr(${it.index}).and(1U) == 1U)", it.name)
+                    val conditionalDef = parameters[it.name]
+                    assert(conditionalDef!!.type == UINT)
+                    beginControlFlow(
+                        when (parameter.type) {
+                            BOOLEAN -> "if (%N)"
+                            else -> "if (%N != null)"
+                        },
+                        it.name
+                    )
                 }
                 val writer = when (parameter.type) {
                     UINT -> "$buffer.writeInt(%N.toInt())"
@@ -153,19 +155,42 @@ fun generateRequest(function: Combinator, nameAllocator: NameAllocator): TypeSpe
             }
         }
         .build()
-    /*
 
-                val reader = when (parameter.type) {
-                    UINT -> "readInt().toUInt()"
-                    INT -> "readInt()"
-                    LONG -> "readLong()"
-                    DOUBLE -> "readDouble()"
-                    STRING -> "readBytes().asString()"
-                    BYTE_ARRAY -> "readBytes()"
-                    else -> TODO()
+    val fromTlRepr = FunSpec.builder("fromTlRepr")
+        .addModifiers(KModifier.OVERRIDE)
+        .addParameter(buffer, BUFFER)
+        .apply {
+            for (parameter in parameters.values) {
+                parameter.conditionalDef?.let {
+                    val conditionalDef = parameters[it.name]
+                    assert(conditionalDef!!.type == UINT)
+                    beginControlFlow("if (%N.shr(${it.index}).and(1U) == 1U)", it.name)
                 }
-     */
+                val reader = when (parameter.type.copy(nullable = false)) {
+                    UINT -> "$buffer.readInt().toUInt()" to arrayOf()
+                    INT -> "$buffer.readInt()" to arrayOf()
+                    LONG -> "$buffer.readLong()" to arrayOf()
+                    DOUBLE -> "$buffer.readDouble()" to arrayOf()
+                    STRING -> "$buffer.readBytes().asString()" to arrayOf()
+                    BYTE_ARRAY -> "$buffer.readBytes()" to arrayOf()
+                    else -> if (parameter.bare) {
+                        "%T.fromTlRepr($buffer)" to arrayOf(parameter.type)
+                    } else {
+                        "%T[$buffer.readInt()].fromTlRepr($buffer)" to arrayOf(parameter.type)
+                    }
+                }
+                addStatement("val ${parameter.name} = ${reader.first}", *reader.second)
+                parameter.conditionalDef?.let {
+                    endControlFlow()
+                }
+            }
+        }
+        .addStatement("")
+        .build()
 
+    val companion = TypeSpec.companionObjectBuilder()
+        .addFunction(fromTlRepr)
+        .build()
 
     return TypeSpec.classBuilder(functionName)
         .primaryConstructor(primaryConstructor)
@@ -182,19 +207,22 @@ fun generateRequest(function: Combinator, nameAllocator: NameAllocator): TypeSpe
                     else -> 0
                 }
             }
-            val dynamics = parameters.values.joinToString(" + ") { "${it.name}.tlSize" }
-            addStatement("$sum + $dynamics")
+            val sizes = listOf(sum.toString(), parameters.values.map { "${it.name}.tlSize" })
+            addStatement(sizes.joinToString(" + "))
             endControlFlow()
         }).build())
         .addSuperinterface(superclass)
         .addTypeVariables(generics)
         .addFunction(toTlRepr)
         .addModifiers(KModifier.DATA)
+        .addType(companion)
         .build()
 }
 
 @ExperimentalUnsignedTypes
-fun generateType(type: Combinator, nameAllocator: NameAllocator): TypeSpec { TODO() }
+fun generateType(type: Combinator, nameAllocator: NameAllocator): TypeSpec {
+    TODO()
+}
 
 @ExperimentalUnsignedTypes
 data class UnnamedParsedArg(val type: TypeName, val bare: Boolean = false, val conditionalDef: ConditionalDef? = null) {
