@@ -20,6 +20,7 @@ package dev.hack5.telekram.generator
 
 import com.squareup.kotlinpoet.NameAllocator
 import dev.hack5.telekram.generator.generator.generateRequest
+import dev.hack5.telekram.generator.generator.generateType
 import dev.hack5.telekram.generator.parser.Combinator
 import kotlinx.ast.common.*
 import kotlinx.ast.common.ast.AstNode
@@ -60,6 +61,9 @@ fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
         val decl = Declaration(it)
         println("constr")
         println(decl.toString(true))
+        println((decl as? Combinator)?.let { comb ->
+            generateType(comb, NameAllocator())
+        })
     }
     ast.flatten("fun_declarations").flatten("declaration").forEach {
         val decl = Declaration(it)
@@ -68,6 +72,28 @@ fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
         println((decl as? Combinator)?.let { comb ->
             generateRequest(comb, NameAllocator())
         })
+    }
+    val constrs = ast.flatten("constr_declarations").flatten("declaration")
+    val byType = constrs.map { Declaration(it) as? Combinator }.filterNotNull().groupBy { it.resultType.name to it.resultType.generics.size }
+    for (type in byType) {
+        for (comb in type.value) {
+            File("/home/penn/telekramtest/${type.key.first}.kt").writeText(
+                generateType(
+                    comb,
+                    NameAllocator()
+                ).toString()
+            )
+        }
+    }
+    val funcs = ast.flatten("fun_declarations").flatten("declaration")
+    for (decl in funcs) {
+        val comb = Declaration(decl) as? Combinator ?: continue
+        File("/home/penn/telekramtest/${comb.id.name}.kt").writeText(
+            generateRequest(
+                comb,
+                NameAllocator()
+            ).toString()
+        )
     }
 }
 

@@ -19,17 +19,14 @@
 package dev.hack5.telekram.generator.generator
 
 import com.squareup.kotlinpoet.*
-import dev.hack5.telekram.generator.parser.Arg
-import dev.hack5.telekram.generator.parser.FullCombinatorId
-import dev.hack5.telekram.generator.parser.OptArg
-import dev.hack5.telekram.generator.parser.VarIdentOpt
+import dev.hack5.telekram.generator.parser.*
 
 @ExperimentalUnsignedTypes
 fun flattenParameters(parameters: List<Arg>): List<Arg> {
     return parameters.map {
         when (it) {
             is Arg.SimpleArg -> listOf(it)
-            is Arg.BracketArg -> flattenParameters(it.innerArgs)
+            is Arg.BracketArg -> flattenParameters(List((it.multiplicity as Term.NatConstTerm?)?.natConst?.toInt() ?: 1) { _ -> it.innerArgs }.flatten())
             is Arg.TypeArg -> listOf(it)
         }
     }.flatten()
@@ -62,7 +59,10 @@ fun transformUserFacingName(name: String, initialCaps: Boolean): String {
     }.second
 }
 
-fun transformUserFacingParameterName(name: VarIdentOpt) = transformUserFacingName(name.ident!!, false)
+fun transformUserFacingParameterName(name: VarIdentOpt, index: Int): Pair<Any, String> {
+    val ret = transformUserFacingName(name.ident ?: return UnnamedParameter(index) to "unnamed_$index", false)
+    return ParameterName(ret) to ret
+}
 
 @ExperimentalUnsignedTypes
 fun transformUserFacingCombinatorName(combinatorId: String, extension: String): String {
@@ -73,22 +73,29 @@ fun transformUserFacingCombinatorName(combinatorId: String, extension: String): 
 fun transformUserFacingCombinatorName(combinatorId: FullCombinatorId, extension: String) = transformUserFacingCombinatorName(combinatorId.name!!, extension)
 
 @ExperimentalUnsignedTypes
-fun getNativeType(ident: String, context: Context): UnnamedParsedArg {
+fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDef?): UnnamedParsedArg {
     if (context[ident] != null) {
         return UnnamedParsedArg(TypeVariableName(ident))
     }
     val bare = ident.first() == ident.first().toLowerCase()
     return when (ident.toLowerCase()) {
-        "#" -> return UnnamedParsedArg(UINT, true)
-        "int" -> UnnamedParsedArg(INT, bare)
-        "long" -> UnnamedParsedArg(LONG, bare)
-        "double" -> UnnamedParsedArg(DOUBLE, bare)
-        "string" -> UnnamedParsedArg(STRING, bare)
-        "bytes" -> UnnamedParsedArg(BYTE_ARRAY, bare)
-        "vector" -> UnnamedParsedArg(LIST, bare)
-        else -> return UnnamedParsedArg(ClassName(OUTPUT_PACKAGE_NAME, transformUserFacingCombinatorName(ident, CONSTRUCTOR)))
+        "#" -> return UnnamedParsedArg(UINT.copy(nullable = conditionalDef != null), true, conditionalDef)
+        "int" -> UnnamedParsedArg(INT.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "long" -> UnnamedParsedArg(LONG.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "double" -> UnnamedParsedArg(DOUBLE.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "string" -> UnnamedParsedArg(STRING.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "bytes" -> UnnamedParsedArg(BYTE_ARRAY.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "vector" -> UnnamedParsedArg(LIST.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "true" -> {
+            assert(conditionalDef != null)
+            UnnamedParsedArg(BOOLEAN, bare, conditionalDef)
+        }
+        else -> UnnamedParsedArg(ClassName(OUTPUT_PACKAGE_NAME, transformUserFacingCombinatorName(ident, CONSTRUCTOR)), bare, conditionalDef)
     }
 }
+
+@ExperimentalUnsignedTypes
+fun Term.ignoreBare(): Term = if (this is Term.PercentTerm) term.ignoreBare() else this
 
 const val CONSTRUCTOR = "Object"
 const val FUNCTION = "Request"

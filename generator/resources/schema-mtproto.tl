@@ -5,8 +5,6 @@ string ? = String;
 bytes bytes:%String = Bytes;
 
 vector {t:Type} # [ t ] = Vector t;
-tuple {t:Type} {n:#} n [ t ] = Tuple n t;
-longer_tuple {t:Type} {n:#} %(Tuple (n + 1) t) = LongerTuple n t;
 
 int128 4*[ int ] = Int128;
 int256 8*[ int ] = Int256;
