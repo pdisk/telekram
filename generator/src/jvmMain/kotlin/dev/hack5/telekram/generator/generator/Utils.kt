@@ -19,6 +19,7 @@
 package dev.hack5.telekram.generator.generator
 
 import com.squareup.kotlinpoet.*
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import dev.hack5.telekram.generator.parser.*
 
 @ExperimentalUnsignedTypes
@@ -73,33 +74,78 @@ fun transformUserFacingCombinatorName(combinatorId: String, extension: String): 
 fun transformUserFacingCombinatorName(combinatorId: FullCombinatorId, extension: String) = transformUserFacingCombinatorName(combinatorId.name!!, extension)
 
 @ExperimentalUnsignedTypes
-fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDef?): UnnamedParsedArg {
-    if (context[ident] != null) {
+fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDef?, bare: Boolean): UnnamedParsedArg {
+    if (context[ident]?.arg is OptArgOrArg.OptArg) {
         return UnnamedParsedArg(TypeVariableName(ident))
     }
-    val bare = ident.first() == ident.first().toLowerCase()
+    val calculatedBare = ident.first() == ident.first().toLowerCase() || bare
+    val suffix = if (bare) CONSTRUCTOR else TYPE
     return when (ident.toLowerCase()) {
         "#" -> return UnnamedParsedArg(UINT.copy(nullable = conditionalDef != null), true, conditionalDef)
-        "int" -> UnnamedParsedArg(INT.copy(nullable = conditionalDef != null), bare, conditionalDef)
-        "long" -> UnnamedParsedArg(LONG.copy(nullable = conditionalDef != null), bare, conditionalDef)
-        "double" -> UnnamedParsedArg(DOUBLE.copy(nullable = conditionalDef != null), bare, conditionalDef)
-        "string" -> UnnamedParsedArg(STRING.copy(nullable = conditionalDef != null), bare, conditionalDef)
-        "bytes" -> UnnamedParsedArg(BYTE_ARRAY.copy(nullable = conditionalDef != null), bare, conditionalDef)
-        "vector" -> UnnamedParsedArg(LIST.copy(nullable = conditionalDef != null), bare, conditionalDef)
+        "int" -> UnnamedParsedArg(INT.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "long" -> UnnamedParsedArg(LONG.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "double" -> UnnamedParsedArg(DOUBLE.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "string" -> UnnamedParsedArg(STRING.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "bytes" -> UnnamedParsedArg(BYTE_ARRAY.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "vector" -> UnnamedParsedArg(LIST.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
         "true" -> {
             assert(conditionalDef != null)
-            UnnamedParsedArg(BOOLEAN, bare, conditionalDef)
+            UnnamedParsedArg(BOOLEAN, calculatedBare, conditionalDef)
         }
-        else -> UnnamedParsedArg(ClassName(OUTPUT_PACKAGE_NAME, transformUserFacingCombinatorName(ident, CONSTRUCTOR)), bare, conditionalDef)
+        else -> UnnamedParsedArg(ClassName(context.packageName, transformUserFacingCombinatorName(ident, suffix)), calculatedBare, conditionalDef)
     }
+}
+
+@ExperimentalUnsignedTypes
+fun getNativeType(comb: Combinator, context: Context): TypeName {
+    return getNativeType(comb.id.name!!, context, null, true).type
+        .let {
+            if (comb.optArgs.isNotEmpty())
+                (it as ClassName).parameterizedBy(comb.optArgs.map { STAR })
+            else
+                it
+        }
+}
+
+@ExperimentalUnsignedTypes
+fun getNativeType(type: ResultType, context: Context): TypeName {
+    return getNativeType(type.name, context, null, false).type
+        .let {
+            if (type.generics.isNotEmpty())
+                (it as ClassName).parameterizedBy(type.generics.map { STAR })
+            else
+                it
+        }
 }
 
 @ExperimentalUnsignedTypes
 fun Term.ignoreBare(): Term = if (this is Term.PercentTerm) term.ignoreBare() else this
 
+fun FileSpec.Builder.suppressWarnings(vararg warnings: String): FileSpec.Builder = apply {
+    addAnnotation(
+        AnnotationSpec.builder(ClassName("kotlin", "Suppress"))
+            .addMember(List(warnings.size) { "%S" }.joinToString(), *warnings)
+            .build()
+    )
+}
+
 const val CONSTRUCTOR = "Object"
 const val FUNCTION = "Request"
+const val TYPE = "Type"
 
-const val OUTPUT_PACKAGE_NAME = "dev.hack5.telekram.core.tl" // TODO make dynamic-ish
-val BUFFER = ClassName("dev.hack5.telekram.core.tl", "Buffer")
 val UINT = ClassName("kotlin", "UInt")
+
+val BUFFER = ClassName("dev.hack5.telekram.core.tl", "Buffer")
+val TL_OBJECT = ClassName("dev.hack5.telekram.core.tl", "TLObject")
+val TL_FUNCTION = ClassName("dev.hack5.telekram.core.tl", "TLFunction")
+val TL_DESERIALIZER = ClassName("dev.hack5.telekram.core.tl", "TLDeserializer")
+val TL_INT = ClassName("dev.hack5.telekram.core.tl", "TLInt")
+val TL_LONG = ClassName("dev.hack5.telekram.core.tl", "TLLong")
+val TL_DOUBLE = ClassName("dev.hack5.telekram.core.tl", "TLDouble")
+val TL_STRING = ClassName("dev.hack5.telekram.core.tl", "TLString")
+val TL_BYTES = ClassName("dev.hack5.telekram.core.tl", "TLBytes")
+val TL_LIST = ClassName("dev.hack5.telekram.core.tl", "TLList")
+val TL_BOOL = ClassName("dev.hack5.telekram.core.tl", "TLBool")
+val TL_BASE = ClassName("dev.hack5.telekram.core.tl", "TLBase")
+
+val TYPE_NOT_FOUND_ERROR = ClassName("dev.hack5.telekram.core.tl", "TypeNotFoundError")

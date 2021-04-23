@@ -26,16 +26,16 @@ import dev.hack5.telekram.generator.parser.*
 // TODO rewrite this file to allow better handling of OptArgs
 
 @ExperimentalUnsignedTypes
-fun parseSubexpr(subExpr: SubExpr, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?): UnnamedParsedArg {
+fun parseSubexpr(subExpr: SubExpr, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?, bare: Boolean): UnnamedParsedArg {
     return when (subExpr) {
         is SubExpr.AdditionExpr -> error("Unexpected $subExpr")
-        is SubExpr.TermExpr -> parseTerm(subExpr.term, context, nameAllocator, conditionalDef)
+        is SubExpr.TermExpr -> parseTerm(subExpr.term, context, nameAllocator, conditionalDef, bare)
     }
 }
 
 @ExperimentalUnsignedTypes
-fun parseExpr(expr: Expr, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?): UnnamedParsedArg {
-    return expr.subexprs.map { parseSubexpr(it, context, nameAllocator, conditionalDef) }.let {
+fun parseExpr(expr: Expr, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?, bare: Boolean): UnnamedParsedArg {
+    return expr.subexprs.map { parseSubexpr(it, context, nameAllocator, conditionalDef, bare) }.let {
         println(it)
         it.singleOrNull() ?: it.first().parameterizedBy(*it.drop(1).toTypedArray())
     }
@@ -43,26 +43,26 @@ fun parseExpr(expr: Expr, context: Context, nameAllocator: NameAllocator, condit
 
 @ExperimentalUnsignedTypes
 fun getGenericExpr(expr: Expr, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?): UnnamedParsedArg {
-    return getNativeType(expr.subexprs.asSequence().filterIsInstance<SubExpr.TermExpr>().map { it.term.ignoreBare() }.filterIsInstance<Term.TypeIdentTerm>().map { it.type }.single(), context, conditionalDef)
+    return getNativeType(expr.subexprs.asSequence().filterIsInstance<SubExpr.TermExpr>().map { it.term.ignoreBare() }.filterIsInstance<Term.TypeIdentTerm>().map { it.type }.single(), context, conditionalDef, false)
 }
 
 @ExperimentalUnsignedTypes
-fun parseTerm(term: Term, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?): UnnamedParsedArg {
+fun parseTerm(term: Term, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?, bare: Boolean): UnnamedParsedArg {
     return when (term) {
-        is Term.ExprTerm -> parseExpr(term.expr, context, nameAllocator, conditionalDef)
-        is Term.TypeIdentTerm -> getNativeType(term.type, context, conditionalDef)
+        is Term.ExprTerm -> parseExpr(term.expr, context, nameAllocator, conditionalDef, bare)
+        is Term.TypeIdentTerm -> getNativeType(term.type, context, conditionalDef, bare)
         is Term.VarIdentTerm -> error("Unexpected $term")
         is Term.NatConstTerm -> error("Unexpected $term")
-        is Term.PercentTerm -> parseTerm(term.term, context, nameAllocator, conditionalDef).copy(bare = true)
-        is Term.GenericTerm -> getNativeType(term.type, context, conditionalDef).parameterizedBy(*term.generics.map { getGenericExpr(it, context, nameAllocator, conditionalDef) }.toTypedArray())
+        is Term.PercentTerm -> parseTerm(term.term, context, nameAllocator, conditionalDef, true)
+        is Term.GenericTerm -> getNativeType(term.type, context, conditionalDef, bare).parameterizedBy(*term.generics.map { getGenericExpr(it, context, nameAllocator, conditionalDef) }.toTypedArray())
     }
 }
 
 @ExperimentalUnsignedTypes
 fun getUserFacingType(parameter: TypeTerm, context: Context, nameAllocator: NameAllocator, conditionalDef: ConditionalDef?): UnnamedParsedArg {
-    val term = parseTerm(parameter.term, context, nameAllocator, conditionalDef)
+    val term = parseTerm(parameter.term, context, nameAllocator, conditionalDef, false)
     if (parameter.excl) {
-        return term.copy(type = ClassName(OUTPUT_PACKAGE_NAME, "TLFunction").parameterizedBy(term.type))
+        return term.copy(type = TL_FUNCTION.parameterizedBy(term.type))
     }
     return term
 }
@@ -76,9 +76,9 @@ fun getUserFacingType(parameter: Arg, context: Context, nameAllocator: NameAlloc
             val auxType = if (single == null) {
                 TODO()
             } else {
-                getUserFacingType(single, Context(context), nameAllocator).type
+                getUserFacingType(single, Context(context), nameAllocator)
             }
-            UnnamedParsedArg(LIST.parameterizedBy(auxType), true)
+            UnnamedParsedArg(LIST, true).parameterizedBy(auxType)
         }
         is Arg.TypeArg -> getUserFacingType(parameter.type, context, nameAllocator, null)
     }
@@ -119,6 +119,7 @@ fun CodeBlock.Builder.writeSum(parameters: Iterable<ParsedArg<OptArgOrArg.Arg>>)
             INT -> 4
             LONG -> 8
             DOUBLE -> 8
+            BOOLEAN -> if (it.bare) 0 else 4
             else -> {
                 others.add("${it.name}.tlSize")
                 0
@@ -137,6 +138,7 @@ fun getReader(parameter: UnnamedParsedArg, buffer: String): Pair<String, Array<T
     DOUBLE -> "$buffer.readDouble()" to arrayOf()
     STRING -> "$buffer.readBytes().asString()" to arrayOf()
     BYTE_ARRAY -> "$buffer.readBytes()" to arrayOf()
+    BOOLEAN -> (if (parameter.bare) "true" else "$buffer.readBoolean(false)") to arrayOf()
     is ParameterizedTypeName -> {
         if ((parameter.type as ParameterizedTypeName).rawType.copy(nullable = false) == LIST) {
             val reader = getReader(parameter.parameters.single(), buffer)
@@ -145,11 +147,7 @@ fun getReader(parameter: UnnamedParsedArg, buffer: String): Pair<String, Array<T
             TODO("non-vector generic parameters")
         }
     }
-    else -> if (parameter.bare) {
-        "%T.fromTlRepr($buffer)" to arrayOf(parameter.type)
-    } else {
-        "%T[$buffer.readInt()].fromTlRepr($buffer)" to arrayOf(parameter.type)
-    }
+    else -> "%T.fromTlRepr($buffer)" to arrayOf(parameter.type)
 }
 
 @ExperimentalUnsignedTypes
@@ -158,7 +156,7 @@ fun getToTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String, P
     .addParameter(buffer, BUFFER)
     .addParameter(bare, BOOLEAN)
     .beginControlFlow("if (!$bare)")
-    .addStatement("$buffer.writeInt($id)")
+    .addStatement("$buffer.write($id, true)")
     .endControlFlow()
     .apply {
         if (parameters.values.any { it.conditionalDef != null }) {
@@ -166,12 +164,12 @@ fun getToTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String, P
             for (parameter in parameters.values) {
                 parameter.conditionalDef?.let {
                     if (initialized.add(parameter.conditionalDef)) {
-                        addStatement("val ${parameter.conditionalDef.name} = 0U")
+                        addStatement("var ${parameter.conditionalDef.name} = 0U")
                     }
                     beginFlagsBlock(parameter)
                     val fieldIndex = parameter.conditionalDef.index?.toInt() ?: 0
                     assert(fieldIndex < 32)
-                    addStatement("${parameter.conditionalDef.name} = ${parameter.conditionalDef.name} or ${1U shl fieldIndex}")
+                    addStatement("${parameter.conditionalDef.name} = ${parameter.conditionalDef.name} or ${1 shl fieldIndex}U", )
                     endControlFlow()
                 }
             }
@@ -182,7 +180,9 @@ fun getToTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String, P
                 assert(conditionalDef!!.type == UINT)
                 beginFlagsBlock(parameter)
             }
-            addStatement("%N.toTlRepr($buffer, ${parameter.bare})", parameter.name)
+            val toInt = if (parameter.type.copy(nullable = false) == UINT) "?.toInt()" else ""
+            val innerBare = if (parameter.type.copy(nullable = false).removeParameters() == LIST) ", " + parameter.parameters.single().bare else ""
+            addStatement("$buffer.write(%N$toInt, ${parameter.bare}$innerBare)", parameter.name)
             parameter.conditionalDef?.let {
                 endControlFlow()
             }
@@ -191,108 +191,301 @@ fun getToTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String, P
     .build()
 
 @ExperimentalUnsignedTypes
-fun getFromTlRepr(buffer: String, parameters: Map<String, ParsedArg<OptArgOrArg.Arg>>, typeName: String) = FunSpec.builder("fromTlRepr")
+fun getFromTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String, ParsedArg<OptArgOrArg.Arg>>, userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>, typeName: TypeName) = FunSpec.builder("fromTlRepr")
     .addModifiers(KModifier.OVERRIDE)
     .addParameter(buffer, BUFFER)
+    .returns(typeName)
     .apply {
         for (parameter in parameters.values) {
+            if (parameter.type == BOOLEAN) {
+                val conditionalDef = parameters[parameter.conditionalDef!!.name]
+                assert(conditionalDef!!.type == UINT)
+                addStatement("val ${parameter.name} = %N.shr(${parameter.conditionalDef.index}).and(1U) != 0U", conditionalDef.name)
+                continue
+            }
+            addCode("val ${parameter.name} = ")
             parameter.conditionalDef?.let {
                 val conditionalDef = parameters[it.name]
                 assert(conditionalDef!!.type == UINT)
                 beginControlFlow("if (%N.shr(${it.index}).and(1U) == 1U)", conditionalDef.name)
             }
             val reader = getReader(UnnamedParsedArg(parameter), buffer)
-            addStatement("val ${parameter.name} = ${reader.first}", *reader.second)
+            addStatement(reader.first, *reader.second)
             parameter.conditionalDef?.let {
+                nextControlFlow("else")
+                val default = if (parameter.type == BOOLEAN) false else null
+                addStatement("$default")
                 endControlFlow()
             }
         }
     }
-    .addStatement("return $typeName(${parameters.values.joinToString(", ") { it.name }})")
+    .addStatement("return %T(${userParameters.values.joinToString(", ") { it.name }})", typeName)
     .build()
 
 @ExperimentalUnsignedTypes
-fun generateRequest(function: Combinator, nameAllocator: NameAllocator): TypeSpec {
-    val context = Context(null)
-    val functionName = transformUserFacingCombinatorName(function.id, FUNCTION)
-    function.optArgs.forEach {
+fun getFields(userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>): CodeBlock {
+    return buildCodeBlock {
+        beginControlFlow("lazy")
+        val conversions = userParameters.map {
+            when (it.value.type.copy(nullable = false).removeParameters()) {
+                INT -> TL_INT
+                LONG -> TL_LONG
+                DOUBLE -> TL_DOUBLE
+                STRING -> TL_STRING
+                BYTE_ARRAY -> TL_BYTES
+                LIST -> TL_LIST
+                BOOLEAN -> TL_BOOL
+                else -> null
+            }
+        }
+        val format = conversions.joinToString { if (it == null) "%S to %N" else "%S to %T(%N)" }
+        val parameters = userParameters.values.zip(conversions).flatMap {
+            if (it.second == null)
+                listOf(it.first.name, it.first.name)
+            else
+                listOf(it.first.name, it.second, it.first.name)
+        }
+        addStatement("mapOf($format)", *parameters.toTypedArray())
+        endControlFlow()
+    }
+}
+
+@ExperimentalUnsignedTypes
+fun parseArgs(constructor: Combinator, nameAllocator: NameAllocator, packageName: String): Triple<Map<String, ParsedArg<OptArgOrArg.Arg>>, Map<String, ParsedArg<OptArgOrArg.Arg>>, Context> {
+    val context = Context(null, packageName)
+    constructor.optArgs.forEach {
         context += ParsedArg(it, it.name, UnnamedParsedArg(TypeVariableName(it.name)))
     }
     var index = 0
-    @Suppress("UNCHECKED_CAST") val parameters = flattenParameters(function.args).associate {
+    @Suppress("UNCHECKED_CAST") val parameters = flattenParameters(constructor.args).associate {
         val arg = getUserFacingParameter(it, index++, context, nameAllocator)
-        arg.name to arg
+        (it.name.ident ?: arg.name) to arg
     }
-    val userParameters = stripImplicitParameters(parameters)
+    return Triple(parameters, stripImplicitParameters(parameters), context)
+}
+
+@ExperimentalUnsignedTypes
+fun parseArgs(constructors: List<Combinator>, nameAllocator: NameAllocator, packageName: String): Map<Combinator, Triple<Map<String, ParsedArg<OptArgOrArg.Arg>>, Map<String, ParsedArg<OptArgOrArg.Arg>>, Context>> {
+    val args = constructors.associateWith { parseArgs(it, nameAllocator.copy(), packageName) }
+
+    val commonParams = args.values.map { it.second.mapValues { arg -> arg.value.copy(bare = false) } }.reduce { acc, arg ->
+        println("acc=$acc")
+        val tmpAcc = acc.toMutableMap()
+        for (entry in arg) {
+            if (acc[entry.key]?.copy(bare = false)?.equals(entry.value.copy(bare = false)) == false)
+                tmpAcc.remove(entry.key)
+        }
+        tmpAcc
+    }.values.toSet()
+
+    return args.mapValues { comb ->
+        Triple(
+            comb.value.first.mapValues { it.value.copy(common = it.value.copy(bare = false) in commonParams) },
+            comb.value.second.mapValues { it.value.copy(common = it.value.copy(bare = false) in commonParams) },
+            comb.value.third
+        )
+    }
+}
+
+@ExperimentalUnsignedTypes
+fun getEquals(type: TypeName, userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>) = FunSpec.builder("equals").apply {
+    returns(BOOLEAN)
+    addModifiers(KModifier.OVERRIDE)
+    addParameter("other", ANY.copy(nullable = true))
+    addStatement("if (this === other) return true")
+    addStatement("if (other !is %T) return false", type)
+    for (param in userParameters) {
+        addStatement("if (other.${param.value.name} != ${param.value.name}) return false")
+    }
+    addStatement("return true")
+}.build()
+
+@ExperimentalUnsignedTypes
+fun getHashCode(type: TypeName, userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>) = FunSpec.builder("hashCode").apply {
+    returns(INT)
+    addModifiers(KModifier.OVERRIDE)
+    var i = 1
+    addStatement("return " + userParameters.values.joinToString(" + ") {
+        i *= 31
+        it.name + ".hashCode() * " + (i / 31)
+    })
+}.build()
+
+@ExperimentalUnsignedTypes
+fun getBaseFromTlRepr(type: TypeName, constructors: Set<Combinator>, packageName: String) = FunSpec.builder("fromTlRepr").apply {
+    returns(type)
+    addModifiers(KModifier.OVERRIDE)
+    addParameter("buffer", BUFFER)
+    beginControlFlow("return when (val id = buffer.readInt()) {")
+    for (constructor in constructors) {
+        addStatement("${constructor.crc.toInt()} -> %T", getNativeType(constructor, Context(null, packageName)))
+    }
+    addStatement("else -> throw %T(id, buffer)", TYPE_NOT_FOUND_ERROR)
+    endControlFlow()
+    addCode(".fromTlRepr(buffer)")
+}.build()
+
+@ExperimentalUnsignedTypes
+fun generateRequest(
+    function: Combinator,
+    parameters: Map<String, ParsedArg<OptArgOrArg.Arg>>,
+    userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>,
+    context: Context,
+    nameAllocator: NameAllocator
+): TypeSpec {
+    val functionName = transformUserFacingCombinatorName(function.id, FUNCTION)
     val primaryConstructor = FunSpec.constructorBuilder().also {
         it.parameters.addAll(userParameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
     }.build()
-    val superclass = ClassName("dev.hack5.telekram.core.tl", "TLFunction").parameterizedBy(getNativeType(function.resultType.name, context, null).parameterizedBy(*function.resultType.generics.map { getGenericExpr(Expr(listOf(it)), context, nameAllocator, null) }.toTypedArray()).type)
-    val generics = function.optArgs.map { TypeVariableName(it.name, ClassName(OUTPUT_PACKAGE_NAME, "TLObject")) }
+    val superclass = TL_FUNCTION.parameterizedBy(getNativeType(function.resultType, context))
+    val generics = function.optArgs.map { TypeVariableName(it.name, TL_OBJECT) }
     val buffer = nameAllocator.newName("buffer", BufferName)
     val bare = nameAllocator.newName("bare", BareName)
     val toTlRepr = getToTlRepr(buffer, bare, function.crc.toInt(), parameters)
+    val className = getNativeType(function, Context(null, context.packageName))
+    val fields = getFields(userParameters)
+    val equals = getEquals(className, userParameters)
+    val hashCode = getHashCode(className, userParameters)
 
     return TypeSpec.classBuilder(functionName)
         .primaryConstructor(primaryConstructor)
         .addProperties(userParameters.values.map { PropertySpec.builder(it.name, it.type).initializer(it.name).build() })
-        .addProperty(PropertySpec.builder("tlSize", INT).delegate(buildCodeBlock {
-            beginControlFlow("lazy(LazyThreadSafetyMode.PUBLICATION)")
-            writeSum(parameters.values)
-            endControlFlow()
-        }).build())
-        .addSuperinterface(superclass)
+        .addProperty(
+            PropertySpec.builder("tlSize", INT)
+                .delegate(buildCodeBlock {
+                    beginControlFlow("lazy(LazyThreadSafetyMode.PUBLICATION)")
+                    writeSum(parameters.values)
+                    endControlFlow()
+                })
+                .addModifiers(KModifier.OVERRIDE)
+                .build()
+        )
+        .addProperty(
+            PropertySpec.builder("fields", MAP.parameterizedBy(STRING, TL_BASE))
+                .delegate(fields)
+                .addModifiers(KModifier.OVERRIDE)
+                .build()
+        )
+        .superclass(superclass)
         .addTypeVariables(generics)
         .addFunction(toTlRepr)
+        .addFunction(equals)
+        .addFunction(hashCode)
         .addModifiers(KModifier.DATA)
         .build()
 }
 
 @ExperimentalUnsignedTypes
-fun generateType(type: Combinator, nameAllocator: NameAllocator): TypeSpec {
-    val context = Context(null)
+fun generateType(
+    type: Combinator,
+    parameters: Map<String, ParsedArg<OptArgOrArg.Arg>>,
+    userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>,
+    context: Context,
+    nameAllocator: NameAllocator
+): TypeSpec {
+    println(parameters)
     val typeName = transformUserFacingCombinatorName(type.id, CONSTRUCTOR)
     type.optArgs.forEach {
         context += ParsedArg(it, it.name, UnnamedParsedArg(TypeVariableName(it.name)))
     }
-    var index = 0
-    @Suppress("UNCHECKED_CAST") val parameters = flattenParameters(type.args).associate {
-        val arg = getUserFacingParameter(it, index++, context, nameAllocator)
-        arg.name to arg
-    }
-    val userParameters = stripImplicitParameters(parameters)
     val primaryConstructor = FunSpec.constructorBuilder().also {
         it.parameters.addAll(userParameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
     }.build()
-    val superclass = ClassName("dev.hack5.telekram.core.tl", "TLObject").parameterizedBy(getNativeType(type.resultType.name, context, null).parameterizedBy(*type.resultType.generics.map { getGenericExpr(Expr(listOf(it)), context, nameAllocator, null) }.toTypedArray()).type)
-    val generics = type.optArgs.map { TypeVariableName(it.name, ClassName(OUTPUT_PACKAGE_NAME, "TLObject")) }
+    val superclass = getNativeType(type.resultType, context)
+    val generics = type.optArgs.map { TypeVariableName(it.name, TL_OBJECT) }
     val buffer = nameAllocator.newName("buffer", BufferName)
     val bare = nameAllocator.newName("bare", BareName)
     val toTlRepr = getToTlRepr(buffer, bare, type.crc.toInt(), parameters)
-    val fromTlRepr = getFromTlRepr(buffer, parameters, typeName)
+    val className = getNativeType(type, Context(null, context.packageName))
+    val fromTlRepr = getFromTlRepr(buffer, bare, type.crc.toInt(), parameters, userParameters, className)
+    val fields = getFields(userParameters)
+    val equals = getEquals(className, userParameters)
+    val hashCode = getHashCode(className, userParameters)
 
     val companion = TypeSpec.companionObjectBuilder()
+        .addSuperinterface(TL_DESERIALIZER.parameterizedBy(className))
         .addFunction(fromTlRepr)
         .build()
 
     return TypeSpec.classBuilder(typeName)
         .primaryConstructor(primaryConstructor)
-        .addProperties(userParameters.values.map { PropertySpec.builder(it.name, it.type).initializer(it.name).build() })
-        .addProperty(PropertySpec.builder("tlSize", INT).delegate(buildCodeBlock {
-            beginControlFlow("lazy(LazyThreadSafetyMode.PUBLICATION)")
-            writeSum(parameters.values)
-            endControlFlow()
-        }).build())
-        .addSuperinterface(superclass)
+        .addProperties(userParameters.values.map {
+            PropertySpec.builder(it.name, it.type)
+                .initializer(it.name)
+                .apply {
+                    if (it.common)
+                        addModifiers(KModifier.OVERRIDE)
+                }
+                .build()
+        })
+        .addProperty(
+            PropertySpec.builder("tlSize", INT)
+                .delegate(buildCodeBlock {
+                    beginControlFlow("lazy(LazyThreadSafetyMode.PUBLICATION)")
+                    writeSum(parameters.values)
+                    endControlFlow()
+                })
+                .addModifiers(KModifier.OVERRIDE)
+                .build()
+        )
+        .addProperty(
+            PropertySpec.builder("fields", MAP.parameterizedBy(STRING, TL_BASE))
+                .delegate(fields)
+                .addModifiers(KModifier.OVERRIDE)
+                .build()
+        )
+        .superclass(superclass)
         .addTypeVariables(generics)
         .addFunction(toTlRepr)
+        .addFunction(equals)
+        .addFunction(hashCode)
         .addModifiers(KModifier.DATA)
         .addType(companion)
-        .build()}
+        .build()
+}
+
+@ExperimentalUnsignedTypes
+fun generateBaseType(type: String, userParameters: Map<Combinator, Triple<Map<String, ParsedArg<OptArgOrArg.Arg>>, Map<String, ParsedArg<OptArgOrArg.Arg>>, Context>>, genericsCount: Int, nameAllocator: NameAllocator, packageName: String): TypeSpec {
+    val typeName = transformUserFacingCombinatorName(type, TYPE)
+    val superClass = TL_OBJECT
+    val className = ClassName(packageName, typeName).let {
+        if (genericsCount > 0) {
+            it.parameterizedBy(List(genericsCount) { STAR })
+        } else {
+            it
+        }
+    }
+
+    val fromTlRepr = getBaseFromTlRepr(className, userParameters.keys, packageName)
+
+    val companion = TypeSpec.companionObjectBuilder()
+        .addSuperinterface(TL_DESERIALIZER.parameterizedBy(className))
+        .addFunction(fromTlRepr)
+        .build()
+
+    return TypeSpec.classBuilder(typeName)
+        .addProperties(
+            userParameters
+                .values
+                .map { it.second.values.filter { arg -> arg.common } }
+                .flatten()
+                .map { it.name to it.type }
+                .toSet()
+                .map {
+                    PropertySpec.builder(it.first, it.second)
+                        .addModifiers(KModifier.ABSTRACT)
+                        .build()
+                }
+        )
+        .addType(companion)
+        .addSuperinterface(superClass)
+        .addModifiers(KModifier.SEALED)
+        .build()
+}
 
 @ExperimentalUnsignedTypes
 data class UnnamedParsedArg(val type: TypeName, val bare: Boolean = false, val conditionalDef: ConditionalDef? = null, val parameters: List<UnnamedParsedArg> = emptyList()) {
-    fun parameterizedBy(args: Array<UnnamedParsedArg>): UnnamedParsedArg {
+    fun parameterizedBy(vararg args: UnnamedParsedArg): UnnamedParsedArg {
         if (args.isEmpty()) {
             return this
         }
@@ -309,7 +502,7 @@ data class UnnamedParsedArg(val type: TypeName, val bare: Boolean = false, val c
 }
 
 @ExperimentalUnsignedTypes
-data class ParsedArg<A : OptArgOrArg> (val arg: A, val name: String, val type: TypeName, val bare: Boolean, val conditionalDef: ConditionalDef? = null, val parameters: List<UnnamedParsedArg> = emptyList()) {
+data class ParsedArg<A : OptArgOrArg> (val arg: A, val name: String, val type: TypeName, val bare: Boolean, val conditionalDef: ConditionalDef? = null, val parameters: List<UnnamedParsedArg> = emptyList(), val common: Boolean = false) {
     companion object {
         operator fun invoke(arg: Arg, name: String, parsedArg: UnnamedParsedArg): ParsedArg<OptArgOrArg.Arg> {
             return ParsedArg(OptArgOrArg.Arg(arg), name, parsedArg.type, parsedArg.bare, parsedArg.conditionalDef, parsedArg.parameters)
@@ -333,7 +526,7 @@ sealed class OptArgOrArg {
 }
 
 @ExperimentalUnsignedTypes
-class Context(private val parent: Context?) {
+class Context(private val parent: Context?, val packageName: String = parent!!.packageName) {
     private val argsSoFarLocal = mutableMapOf<String, ParsedArg<*>>()
 
     val argsSoFar: Map<String, ParsedArg<*>>
@@ -348,4 +541,9 @@ class Context(private val parent: Context?) {
     fun addAuxType(auxType: TypeSpec) {
         // TODO
     }
+}
+
+fun TypeName.removeParameters() = when (this) {
+    is ParameterizedTypeName -> this.rawType
+    else -> this
 }

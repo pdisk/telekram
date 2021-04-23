@@ -18,14 +18,4 @@
 
 package dev.hack5.telekram.core.tl
 
-expect class ByteBuffer {
-    fun writeInt(int: Int)
-    fun writeLong(long: Long)
-    fun writeDouble(double: Double)
-    fun writeBytes(bytes: ByteArray)
-
-    fun readInt(): Int
-    fun readLong(): Long
-    fun readDouble(): Double
-    fun readBytes(): ByteArray
-}
+class TypeNotFoundError(val id: Int, val buffer: Buffer, cause: Exception? = null) : Exception("Could not find valid Constructor for ID $id. Either the constructor is unknown or present in an invalid context that would cause type validation failures.", cause)

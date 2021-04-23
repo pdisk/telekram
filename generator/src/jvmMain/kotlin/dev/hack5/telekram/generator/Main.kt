@@ -18,9 +18,9 @@
 
 package dev.hack5.telekram.generator
 
+import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.NameAllocator
-import dev.hack5.telekram.generator.generator.generateRequest
-import dev.hack5.telekram.generator.generator.generateType
+import dev.hack5.telekram.generator.generator.*
 import dev.hack5.telekram.generator.parser.Combinator
 import kotlinx.ast.common.*
 import kotlinx.ast.common.ast.AstNode
@@ -30,7 +30,7 @@ import org.antlr.v4.kotlinruntime.tree.ParseTree
 import dev.hack5.telekram.generator.parser.Declaration
 import tk.hack5.telekram.generator.tl.TLLexer
 import tk.hack5.telekram.generator.tl.TLParser
-import java.io.File
+import java.nio.file.Path
 
 
 @Suppress("EnumEntryName")
@@ -53,54 +53,59 @@ object TLParserExtractor: AntlrKotlinParserExtractor<TLParser, TLParserType> {
 
 
 @ExperimentalUnsignedTypes
-fun parseAndSave(inputPath: String, outputDir: String, packageName: String) {
+fun parseAndSave(inputPath: String, outputDir: Path, packageName: String) {
     val source = AstSource.File(inputPath)
 
     val ast = antlrKotlinParser(source, TLParserExtractor, TLParserType.tl_file, ::TLLexer, ::TLParser) as AstNode
-    ast.flatten("constr_declarations").flatten("declaration").forEach {
-        val decl = Declaration(it)
-        println("constr")
-        println(decl.toString(true))
-        println((decl as? Combinator)?.let { comb ->
-            generateType(comb, NameAllocator())
-        })
-    }
-    ast.flatten("fun_declarations").flatten("declaration").forEach {
-        val decl = Declaration(it)
-        println("fun")
-        println(decl.toString(true))
-        println((decl as? Combinator)?.let { comb ->
-            generateRequest(comb, NameAllocator())
-        })
-    }
     val constrs = ast.flatten("constr_declarations").flatten("declaration")
     val byType = constrs.map { Declaration(it) as? Combinator }.filterNotNull().groupBy { it.resultType.name to it.resultType.generics.size }
     for (type in byType) {
+        val args = parseArgs(type.value, NameAllocator(), packageName)
+        println(type)
+        val builder = FileSpec.builder(packageName, type.key.first)
+        builder.suppressWarnings("RedundantVisibilityModifier", "RedundantUnitReturnType", "EXPERIMENTAL_UNSIGNED_LITERALS", "EXPERIMENTAL_API_USAGE", "UNNECESSARY_SAFE_CALL", "BooleanLiteralArgument")
         for (comb in type.value) {
-            File("/home/penn/telekramtest/${type.key.first}.kt").writeText(
+            val (parameters, userParameters, context) = args.getValue(comb)
+            println(comb)
+            builder.addType(
                 generateType(
                     comb,
+                    parameters,
+                    userParameters,
+                    context,
                     NameAllocator()
-                ).toString()
+                )
             )
         }
+        builder.addType(generateBaseType(type.key.first, args, type.key.second, NameAllocator(), packageName))
+        val built = builder.build()
+        built.writeTo(outputDir.resolve(built.name))
     }
     val funcs = ast.flatten("fun_declarations").flatten("declaration")
     for (decl in funcs) {
         val comb = Declaration(decl) as? Combinator ?: continue
-        File("/home/penn/telekramtest/${comb.id.name}.kt").writeText(
+        val (parameters, userParameters, context) = parseArgs(comb, NameAllocator(), packageName)
+        val builder = FileSpec.builder(packageName, comb.id.name ?: continue)
+        builder.suppressWarnings("RedundantVisibilityModifier", "RedundantUnitReturnType", "EXPERIMENTAL_UNSIGNED_LITERALS", "EXPERIMENTAL_API_USAGE", "UNNECESSARY_SAFE_CALL", "BooleanLiteralArgument")
+        println(comb)
+        builder.addType(
             generateRequest(
                 comb,
+                parameters,
+                userParameters,
+                context,
                 NameAllocator()
-            ).toString()
+            )
         )
+        val built = builder.build()
+        built.writeTo(outputDir.resolve(built.name))
     }
 }
 
 
 
-fun writeErrors(input: String, outputPath: String, packageName: String) {
-    val file = File(outputPath)
+fun writeErrors(input: String, outputPath: Path, packageName: String) {
+    val file = outputPath.toFile()
     file.parentFile.mkdirs()
     val writer = file.bufferedWriter()
     //ErrorsWriter({ writer.write(it) }, packageName, File(input).readLines().drop(1).map { Error(it) }).build()
@@ -111,18 +116,18 @@ fun writeErrors(input: String, outputPath: String, packageName: String) {
 fun main() {
     parseAndSave(
         "resources/schema-mtproto.tl",
-        "../core/generated/commonMain/dev/hack5/telekram/core/mtproto",
+        Path.of("..", "core", "generated", "commonMain", "dev", "hack5", "telekram", "core", "mtproto"),
         "dev.hack5.telekram.core.mtproto"
     )
     println("===========")
     parseAndSave(
         "resources/schema.tl",
-        "../core/generated/commonMain/dev/hack5/telekram/core/tl",
+        Path.of("..", "core", "generated", "commonMain", "dev", "hack5", "telekram", "core", "tl"),
         "dev.hack5.telekram.core.tl"
     )
     writeErrors(
         "resources/errors.csv",
-        "../core/generated/commonMain/dev/hack5/telekram/core/errors/Errors.kt",
+        Path.of("..", "core", "generated", "commonMain", "dev", "hack5", "telekram", "core", "errors", "Errors.kt"),
         "dev.hack5.telekram.core.errors"
     )
 }

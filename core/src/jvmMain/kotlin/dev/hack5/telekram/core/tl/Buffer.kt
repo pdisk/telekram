@@ -19,5 +19,5 @@
 package dev.hack5.telekram.core.tl
 
 actual fun Buffer(length: Int): Buffer {
-    TODO("Not yet implemented")
+    TODO()
 }

@@ -20,37 +20,42 @@
 
 package dev.hack5.telekram.core.tl
 
-interface TLObject {
+interface TLBase {
+    val fields: Map<String, TLBase?>
+}
+
+private class TLSimpleBase : TLBase {
+    override val fields: Map<String, TLBase?>
+        get() = emptyMap()
+}
+
+data class TLInt(val int: Int) : TLBase by TLSimpleBase()
+data class TLLong(val long: Long) : TLBase by TLSimpleBase()
+data class TLDouble(val double: Double) : TLBase by TLSimpleBase()
+data class TLString(val string: String) : TLBase by TLSimpleBase()
+data class TLBytes(val bytes: ByteArray) : TLBase by TLSimpleBase()
+data class TLList(val list: List<*>) : TLBase by TLSimpleBase()
+data class TLBool(val bool: Boolean) : TLBase by TLSimpleBase()
+
+
+interface TLSerializable : TLBase {
     fun toTlRepr(buffer: Buffer, bare: Boolean)
     fun toTlRepr(bare: Boolean) = Buffer(tlSize + if (bare) 4 else 0).also {
         toTlRepr(it, bare)
     }
 
     val tlSize: Int
-
-    val fields: Map<String, TLObject?>
 }
 
-interface TLConstructor<T : TLObject> {
-    fun fromTlRepr(data: Buffer, bare: Boolean): T
-
-    val id: Int?
+interface TLDeserializer<T : TLBase> {
+    fun fromTlRepr(buffer: Buffer): T
 }
 
-interface TLTypeConstructor<T : TLObject> : TLConstructor<T> {
-    override fun fromTlRepr(data: Buffer, bare: Boolean): T {
-        require(!bare)
-        return fromTlRepr(data)
-    }
-    fun fromTlRepr(data: Buffer): T
-
-    override val id: Nothing? get() = null
-
-    val constructors: Map<Int, TLConstructor<out T>>
+interface TLObject : TLBase, TLSerializable {
 }
 
-interface TLFunction<R : TLObject> : TLObject {
-    val constructor: TLConstructor<R>
+interface TLFunction<R : TLObject> : TLBase, TLSerializable {
+    val constructor: R
 
     @Suppress("UNCHECKED_CAST")
     fun castResult(result: TLObject) = result as R
@@ -59,17 +64,19 @@ interface TLFunction<R : TLObject> : TLObject {
 interface Buffer {
     val offset: Int
     val length: Int
-    fun readByte()
-    fun readInt()
-    fun readLong()
-    fun readDouble()
-    fun readBytes(length: Int)
+    fun readInt(): Int
+    fun readLong(): Long
+    fun readDouble(): Double
+    fun readBytes(): ByteArray
+    fun readBoolean(): ByteArray
 
-    fun writeByte(byte: Byte)
-    fun writeInt(int: Int)
-    fun writeLong(long: Long)
-    fun writeDouble(double: Double)
-    fun writeBytes(bytes: ByteArray)
+    fun write(int: Int, bare: Boolean)
+    fun write(long: Long, bare: Boolean)
+    fun write(double: Double, bare: Boolean)
+    fun write(bytes: ByteArray, bare: Boolean)
+    fun write(bool: Boolean, bare: Boolean)
+    fun write(list: List<TLSerializable>, bare: Boolean, innerBare: Boolean)
+    fun write(tlSerializable: TLSerializable, bare: Boolean)
 }
 
 expect fun Buffer(length: Int): Buffer
