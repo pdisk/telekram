@@ -21,3 +21,5 @@ package dev.hack5.telekram.core.tl
 internal expect fun String.asByteArray(): ByteArray
 
 internal expect fun ByteArray.asString(): String
+
+val String.tlSize get() = asByteArray().size

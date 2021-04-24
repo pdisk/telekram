@@ -197,7 +197,7 @@ fun getFromTlRepr(buffer: String, bare: String, id: Int, parameters: Map<String,
     .returns(typeName)
     .apply {
         for (parameter in parameters.values) {
-            if (parameter.type == BOOLEAN) {
+            if (parameter.type == BOOLEAN && parameter.bare) {
                 val conditionalDef = parameters[parameter.conditionalDef!!.name]
                 assert(conditionalDef!!.type == UINT)
                 addStatement("val ${parameter.name} = %N.shr(${parameter.conditionalDef.index}).and(1U) != 0U", conditionalDef.name)
@@ -228,22 +228,22 @@ fun getFields(userParameters: Map<String, ParsedArg<OptArgOrArg.Arg>>): CodeBloc
         beginControlFlow("lazy")
         val conversions = userParameters.map {
             when (it.value.type.copy(nullable = false).removeParameters()) {
-                INT -> TL_INT
-                LONG -> TL_LONG
-                DOUBLE -> TL_DOUBLE
-                STRING -> TL_STRING
-                BYTE_ARRAY -> TL_BYTES
-                LIST -> TL_LIST
-                BOOLEAN -> TL_BOOL
+                INT -> TL_INT_BARE
+                LONG -> TL_LONG_BARE
+                DOUBLE -> TL_DOUBLE_BARE
+                STRING -> TL_STRING_BARE
+                BYTE_ARRAY -> TL_BYTE_ARRAY_BARE
+                LIST -> TL_LIST_BARE
+                BOOLEAN -> TL_BOOL_BARE
                 else -> null
             }
         }
-        val format = conversions.joinToString { if (it == null) "%S to %N" else "%S to %T(%N)" }
+        val format = conversions.joinToString { if (it == null) "%S to %N" else "%S to %N?.let { %T(it) }" }
         val parameters = userParameters.values.zip(conversions).flatMap {
             if (it.second == null)
                 listOf(it.first.name, it.first.name)
             else
-                listOf(it.first.name, it.second, it.first.name)
+                listOf(it.first.name, it.first.name, it.second)
         }
         addStatement("mapOf($format)", *parameters.toTypedArray())
         endControlFlow()
@@ -305,10 +305,13 @@ fun getHashCode(type: TypeName, userParameters: Map<String, ParsedArg<OptArgOrAr
     returns(INT)
     addModifiers(KModifier.OVERRIDE)
     var i = 1
-    addStatement("return " + userParameters.values.joinToString(" + ") {
-        i *= 31
-        it.name + ".hashCode() * " + (i / 31)
-    })
+    if (userParameters.isEmpty())
+        addStatement("return 0")
+    else
+        addStatement("return " + userParameters.values.joinToString(" + ") {
+            i *= 31
+            it.name + ".hashCode() * " + (i / 31)
+        })
 }.build()
 
 @ExperimentalUnsignedTypes
@@ -318,11 +321,25 @@ fun getBaseFromTlRepr(type: TypeName, constructors: Set<Combinator>, packageName
     addParameter("buffer", BUFFER)
     beginControlFlow("return when (val id = buffer.readInt()) {")
     for (constructor in constructors) {
-        addStatement("${constructor.crc.toInt()} -> %T", getNativeType(constructor, Context(null, packageName)))
+        addStatement("${constructor.crc.toInt()} -> %T", getNativeType(constructor, Context(null, packageName), rawType = true))
     }
     addStatement("else -> throw %T(id, buffer)", TYPE_NOT_FOUND_ERROR)
     endControlFlow()
     addCode(".fromTlRepr(buffer)")
+}.build()
+
+fun getConstructor(resultType: TypeName) = FunSpec.getterBuilder().apply {
+    val constructor = when (resultType.removeParameters()) {
+        INT -> TL_INT
+        LONG -> TL_LONG
+        DOUBLE -> TL_DOUBLE
+        STRING -> TL_STRING
+        BYTE_ARRAY -> TL_BYTE_ARRAY
+        LIST -> TL_LIST
+        BOOLEAN -> TL_BOOL
+        else -> resultType.removeParameters()
+    }
+    addStatement("return %T", constructor)
 }.build()
 
 @ExperimentalUnsignedTypes
@@ -337,15 +354,16 @@ fun generateRequest(
     val primaryConstructor = FunSpec.constructorBuilder().also {
         it.parameters.addAll(userParameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
     }.build()
-    val superclass = TL_FUNCTION.parameterizedBy(getNativeType(function.resultType, context))
+    val superinterface = TL_FUNCTION.parameterizedBy(getNativeType(function.resultType, context))
     val generics = function.optArgs.map { TypeVariableName(it.name, TL_OBJECT) }
     val buffer = nameAllocator.newName("buffer", BufferName)
     val bare = nameAllocator.newName("bare", BareName)
     val toTlRepr = getToTlRepr(buffer, bare, function.crc.toInt(), parameters)
-    val className = getNativeType(function, Context(null, context.packageName))
+    val className = getNativeType(function, Context(null, context.packageName), FUNCTION, rawType = true)
     val fields = getFields(userParameters)
     val equals = getEquals(className, userParameters)
     val hashCode = getHashCode(className, userParameters)
+    val constructor = getConstructor(superinterface.typeArguments.single())
 
     return TypeSpec.classBuilder(functionName)
         .primaryConstructor(primaryConstructor)
@@ -361,17 +379,26 @@ fun generateRequest(
                 .build()
         )
         .addProperty(
-            PropertySpec.builder("fields", MAP.parameterizedBy(STRING, TL_BASE))
+            PropertySpec.builder("fields", MAP.parameterizedBy(STRING, TL_BASE.copy(nullable = true)))
                 .delegate(fields)
                 .addModifiers(KModifier.OVERRIDE)
                 .build()
         )
-        .superclass(superclass)
+        .addProperty(
+            PropertySpec.builder("constructor", TL_DESERIALIZER.parameterizedBy(superinterface.typeArguments))
+                .getter(constructor)
+                .addModifiers(KModifier.OVERRIDE)
+                .build()
+        )
+        .addSuperinterface(superinterface)
         .addTypeVariables(generics)
         .addFunction(toTlRepr)
         .addFunction(equals)
         .addFunction(hashCode)
-        .addModifiers(KModifier.DATA)
+        .apply {
+            if (userParameters.isNotEmpty())
+                addModifiers(KModifier.DATA)
+        }
         .build()
 }
 
@@ -391,12 +418,12 @@ fun generateType(
     val primaryConstructor = FunSpec.constructorBuilder().also {
         it.parameters.addAll(userParameters.values.map { param -> ParameterSpec.builder(param.name, param.type).build() })
     }.build()
-    val superclass = getNativeType(type.resultType, context)
+    val superclass = getNativeType(type.resultType, context, rawType = true)
     val generics = type.optArgs.map { TypeVariableName(it.name, TL_OBJECT) }
     val buffer = nameAllocator.newName("buffer", BufferName)
     val bare = nameAllocator.newName("bare", BareName)
     val toTlRepr = getToTlRepr(buffer, bare, type.crc.toInt(), parameters)
-    val className = getNativeType(type, Context(null, context.packageName))
+    val className = getNativeType(type, Context(null, context.packageName), rawType = true)
     val fromTlRepr = getFromTlRepr(buffer, bare, type.crc.toInt(), parameters, userParameters, className)
     val fields = getFields(userParameters)
     val equals = getEquals(className, userParameters)
@@ -439,7 +466,10 @@ fun generateType(
         .addFunction(toTlRepr)
         .addFunction(equals)
         .addFunction(hashCode)
-        .addModifiers(KModifier.DATA)
+        .apply {
+            if (userParameters.isNotEmpty())
+                addModifiers(KModifier.DATA)
+        }
         .addType(companion)
         .build()
 }

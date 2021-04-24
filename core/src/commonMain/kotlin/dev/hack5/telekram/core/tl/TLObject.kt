@@ -29,13 +29,12 @@ private class TLSimpleBase : TLBase {
         get() = emptyMap()
 }
 
-data class TLInt(val int: Int) : TLBase by TLSimpleBase()
-data class TLLong(val long: Long) : TLBase by TLSimpleBase()
-data class TLDouble(val double: Double) : TLBase by TLSimpleBase()
-data class TLString(val string: String) : TLBase by TLSimpleBase()
-data class TLBytes(val bytes: ByteArray) : TLBase by TLSimpleBase()
-data class TLList(val list: List<*>) : TLBase by TLSimpleBase()
-data class TLBool(val bool: Boolean) : TLBase by TLSimpleBase()
+data class TLLong(val long: Long) : TLObject by TLSimpleBase()
+data class TLDouble(val double: Double) : TLObject by TLSimpleBase()
+data class TLString(val string: String) : TLObject by TLSimpleBase()
+data class TLBytes(val bytes: ByteArray) : TLObject by TLSimpleBase()
+data class TLList(val list: List<*>) : TLObject by TLSimpleBase()
+data class TLBool(val bool: Boolean) : TLObject by TLSimpleBase()
 
 
 interface TLSerializable : TLBase {
@@ -47,18 +46,15 @@ interface TLSerializable : TLBase {
     val tlSize: Int
 }
 
-interface TLDeserializer<T : TLBase> {
+interface TLDeserializer<T> {
     fun fromTlRepr(buffer: Buffer): T
 }
 
 interface TLObject : TLBase, TLSerializable {
 }
 
-interface TLFunction<R : TLObject> : TLBase, TLSerializable {
-    val constructor: R
-
-    @Suppress("UNCHECKED_CAST")
-    fun castResult(result: TLObject) = result as R
+interface TLFunction<R> : TLBase, TLSerializable {
+    val constructor: TLDeserializer<R>
 }
 
 interface Buffer {
@@ -67,12 +63,14 @@ interface Buffer {
     fun readInt(): Int
     fun readLong(): Long
     fun readDouble(): Double
+    fun readString(): String
     fun readBytes(): ByteArray
     fun readBoolean(): ByteArray
 
     fun write(int: Int, bare: Boolean)
     fun write(long: Long, bare: Boolean)
     fun write(double: Double, bare: Boolean)
+    fun write(string: String, bare: Boolean)
     fun write(bytes: ByteArray, bare: Boolean)
     fun write(bool: Boolean, bare: Boolean)
     fun write(list: List<TLSerializable>, bare: Boolean, innerBare: Boolean)

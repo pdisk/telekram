@@ -17,7 +17,32 @@
  */
 
 package dev.hack5.telekram.core.tl
-val UInt.tlSize get() = 4
-val Int.tlSize get() = 4
 
-// TODO
+data class IntObject(val int: Int) : TLObject {
+    override val fields: Map<String, TLBase?>
+        get() = emptyMap()
+
+    override fun toTlRepr(buffer: Buffer, bare: Boolean) {
+        buffer.write(int, bare)
+    }
+
+    override val tlSize: Int
+        get() = 4
+
+    companion object {
+
+    }
+}
+
+public sealed class IntType : TLObject {
+    public abstract val data_: String
+
+    public companion object : TLDeserializer<DataJSONType> {
+        public override fun fromTlRepr(buffer: Buffer): DataJSONType = when (val id = buffer.readInt())
+        {
+            2104790276 -> DataJSONObject
+            else -> throw TypeNotFoundError(id, buffer)
+        }
+            .fromTlRepr(buffer)
+    }
+}

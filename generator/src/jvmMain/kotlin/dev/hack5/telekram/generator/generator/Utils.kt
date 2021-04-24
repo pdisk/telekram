@@ -74,12 +74,15 @@ fun transformUserFacingCombinatorName(combinatorId: String, extension: String): 
 fun transformUserFacingCombinatorName(combinatorId: FullCombinatorId, extension: String) = transformUserFacingCombinatorName(combinatorId.name!!, extension)
 
 @ExperimentalUnsignedTypes
-fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDef?, bare: Boolean): UnnamedParsedArg {
+fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDef?, bare: Boolean, suffix: String? = null, rawType: Boolean = false): UnnamedParsedArg {
     if (context[ident]?.arg is OptArgOrArg.OptArg) {
         return UnnamedParsedArg(TypeVariableName(ident))
     }
     val calculatedBare = ident.first() == ident.first().toLowerCase() || bare
-    val suffix = if (bare) CONSTRUCTOR else TYPE
+    val calculatedSuffix = suffix ?: if (bare) CONSTRUCTOR else TYPE
+    if (rawType) {
+        return UnnamedParsedArg(ClassName(context.packageName, transformUserFacingCombinatorName(ident, calculatedSuffix)), calculatedBare, conditionalDef)
+    }
     return when (ident.toLowerCase()) {
         "#" -> return UnnamedParsedArg(UINT.copy(nullable = conditionalDef != null), true, conditionalDef)
         "int" -> UnnamedParsedArg(INT.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
@@ -88,17 +91,22 @@ fun getNativeType(ident: String, context: Context, conditionalDef: ConditionalDe
         "string" -> UnnamedParsedArg(STRING.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
         "bytes" -> UnnamedParsedArg(BYTE_ARRAY.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
         "vector" -> UnnamedParsedArg(LIST.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        "bool" -> {
+            assert(!bare)
+            UnnamedParsedArg(BOOLEAN.copy(nullable = conditionalDef != null), calculatedBare, conditionalDef)
+        }
         "true" -> {
             assert(conditionalDef != null)
+            assert(bare)
             UnnamedParsedArg(BOOLEAN, calculatedBare, conditionalDef)
         }
-        else -> UnnamedParsedArg(ClassName(context.packageName, transformUserFacingCombinatorName(ident, suffix)), calculatedBare, conditionalDef)
+        else -> UnnamedParsedArg(ClassName(context.packageName, transformUserFacingCombinatorName(ident, calculatedSuffix)), calculatedBare, conditionalDef)
     }
 }
 
 @ExperimentalUnsignedTypes
-fun getNativeType(comb: Combinator, context: Context): TypeName {
-    return getNativeType(comb.id.name!!, context, null, true).type
+fun getNativeType(comb: Combinator, context: Context, suffix: String? = null, rawType: Boolean = false): TypeName {
+    return getNativeType(comb.id.name!!, context, null, true, suffix, rawType).type
         .let {
             if (comb.optArgs.isNotEmpty())
                 (it as ClassName).parameterizedBy(comb.optArgs.map { STAR })
@@ -108,8 +116,8 @@ fun getNativeType(comb: Combinator, context: Context): TypeName {
 }
 
 @ExperimentalUnsignedTypes
-fun getNativeType(type: ResultType, context: Context): TypeName {
-    return getNativeType(type.name, context, null, false).type
+fun getNativeType(type: ResultType, context: Context, rawType: Boolean = false): TypeName {
+    return getNativeType(type.name, context, null, false, rawType = rawType).type
         .let {
             if (type.generics.isNotEmpty())
                 (it as ClassName).parameterizedBy(type.generics.map { STAR })
@@ -139,13 +147,20 @@ val BUFFER = ClassName("dev.hack5.telekram.core.tl", "Buffer")
 val TL_OBJECT = ClassName("dev.hack5.telekram.core.tl", "TLObject")
 val TL_FUNCTION = ClassName("dev.hack5.telekram.core.tl", "TLFunction")
 val TL_DESERIALIZER = ClassName("dev.hack5.telekram.core.tl", "TLDeserializer")
-val TL_INT = ClassName("dev.hack5.telekram.core.tl", "TLInt")
-val TL_LONG = ClassName("dev.hack5.telekram.core.tl", "TLLong")
-val TL_DOUBLE = ClassName("dev.hack5.telekram.core.tl", "TLDouble")
-val TL_STRING = ClassName("dev.hack5.telekram.core.tl", "TLString")
-val TL_BYTES = ClassName("dev.hack5.telekram.core.tl", "TLBytes")
-val TL_LIST = ClassName("dev.hack5.telekram.core.tl", "TLList")
-val TL_BOOL = ClassName("dev.hack5.telekram.core.tl", "TLBool")
+val TL_INT = ClassName("dev.hack5.telekram.core.tl", "IntType")
+val TL_LONG = ClassName("dev.hack5.telekram.core.tl", "LongType")
+val TL_DOUBLE = ClassName("dev.hack5.telekram.core.tl", "DoubleType")
+val TL_STRING = ClassName("dev.hack5.telekram.core.tl", "StringType")
+val TL_BYTE_ARRAY = ClassName("dev.hack5.telekram.core.tl", "BytesType")
+val TL_LIST = ClassName("dev.hack5.telekram.core.tl", "VectorType")
+val TL_BOOL = ClassName("dev.hack5.telekram.core.tl", "BoolType")
+val TL_INT_BARE = ClassName("dev.hack5.telekram.core.tl", "IntObject")
+val TL_LONG_BARE = ClassName("dev.hack5.telekram.core.tl", "LongObject")
+val TL_DOUBLE_BARE = ClassName("dev.hack5.telekram.core.tl", "DoubleObject")
+val TL_STRING_BARE = ClassName("dev.hack5.telekram.core.tl", "StringObject")
+val TL_BYTE_ARRAY_BARE = ClassName("dev.hack5.telekram.core.tl", "BytesObject")
+val TL_LIST_BARE = ClassName("dev.hack5.telekram.core.tl", "VectorObject")
+val TL_BOOL_BARE = ClassName("dev.hack5.telekram.core.tl", "BoolObject")
 val TL_BASE = ClassName("dev.hack5.telekram.core.tl", "TLBase")
 
 val TYPE_NOT_FOUND_ERROR = ClassName("dev.hack5.telekram.core.tl", "TypeNotFoundError")

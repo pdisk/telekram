@@ -21,13 +21,12 @@ package dev.hack5.telekram.generator
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.NameAllocator
 import dev.hack5.telekram.generator.generator.*
-import dev.hack5.telekram.generator.parser.Combinator
+import dev.hack5.telekram.generator.parser.*
 import kotlinx.ast.common.*
 import kotlinx.ast.common.ast.AstNode
 import kotlinx.ast.parser.antlr.kotlin.AntlrKotlinParserExtractor
 import kotlinx.ast.parser.antlr.kotlin.antlrKotlinParser
 import org.antlr.v4.kotlinruntime.tree.ParseTree
-import dev.hack5.telekram.generator.parser.Declaration
 import tk.hack5.telekram.generator.tl.TLLexer
 import tk.hack5.telekram.generator.tl.TLParser
 import java.nio.file.Path
@@ -57,8 +56,18 @@ fun parseAndSave(inputPath: String, outputDir: Path, packageName: String) {
     val source = AstSource.File(inputPath)
 
     val ast = antlrKotlinParser(source, TLParserExtractor, TLParserType.tl_file, ::TLLexer, ::TLParser) as AstNode
-    val constrs = ast.flatten("constr_declarations").flatten("declaration")
-    val byType = constrs.map { Declaration(it) as? Combinator }.filterNotNull().groupBy { it.resultType.name to it.resultType.generics.size }
+    val constrs = ast.flatten("constr_declarations").flatten("declaration").map {
+        when (val decl = Declaration(it)) {
+            is Combinator -> decl
+            is BuiltinCombinator -> Combinator(
+                decl.id.copy(givenId = decl.crc),
+                emptyList(),
+                listOf(Arg.SimpleArg(VarIdentOpt(decl.id.name), null, TypeTerm(false, Term.TypeIdentTerm(decl.id.name!!)))),
+                decl.resultType
+            )
+        }
+    }
+    val byType = constrs.groupBy { it.resultType.name to it.resultType.generics.size }
     for (type in byType) {
         val args = parseArgs(type.value, NameAllocator(), packageName)
         println(type)

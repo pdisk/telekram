@@ -18,36 +18,15 @@
 
 package dev.hack5.telekram.core.tl
 
-fun Long.asTlObject() = LongObject(this, true)
+data class TLLong(val long: Long) : TLObject {
+    override val fields: Map<String, TLBase?>
+        get() = emptyMap()
 
-data class LongObject(private val long: Long, override val bare: Boolean) :
-    TLObject<Long> {
-    @ExperimentalUnsignedTypes
-    override fun _toTlRepr(): IntArray {
-        val firstByte = long.toULong().toInt()
-        val secondByte = long.toULong().shr(UInt.SIZE_BITS).toUInt().toInt()
-        return intArrayOf(firstByte, secondByte)
+    override fun toTlRepr(buffer: Buffer, bare: Boolean) {
+        buffer.write(long, bare)
     }
 
-    override val native = long
-
-    override val _id = id
-
-    override val fields by lazy { mapOf<String, TLObject<*>>() }
-
-    companion object :
-        TLConstructor<LongObject> {
-        @ExperimentalUnsignedTypes
-        override fun _fromTlRepr(data: IntArray, offset: Int): Pair<Int, LongObject>? {
-            return Pair(
-                2,
-                LongObject(
-                    (data[offset + 1].toUInt().toULong().shl(UInt.SIZE_BITS) + data[offset + 0].toUInt().toULong()).toLong(),
-                    true
-                )
-            )
-        }
-
-        override val id: Int? = null
-    }
+    override val tlSize: Int
+        get() = 4
 }
+
